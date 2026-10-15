@@ -49,6 +49,8 @@ def _params(args, plate=None) -> ModelParams:
         cell_mm=args.resolution,
         z_exaggeration=None if args.exaggeration == "auto" else float(args.exaggeration),
         water=args.water,
+        sea_color={"auto": None, "on": True, "off": False}[args.sea_color],
+        coast_step_mm=args.coast_step,
         base_mm=args.base,
         padding=args.padding,
         shape=shape,
@@ -157,6 +159,10 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
                    help="vertical exaggeration, or 'auto' to size the relief to the model (default auto)")
     g.add_argument("--water", choices=["auto", "on", "off"], default="auto",
                    help="flatten the sea and lift the land; auto = when the area has sea (default)")
+    g.add_argument("--sea-color", choices=["auto", "on", "off"], default="auto",
+                   help="print the sea in its own colour (one filament change at the coast); default auto = when there is sea")
+    g.add_argument("--coast-step", type=float, default=1.0,
+                   help="height of the land edge above the sea in mm (default 1.0)")
     g.add_argument("--base", type=float, default=3, help="base thickness in mm (default 3)")
     g.add_argument("--padding", type=float, default=0.1, help="terrain margin around route (fraction, default 0.1)")
     g.add_argument("--square", action="store_true", help="same as --shape square")
@@ -175,7 +181,7 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--colors", type=int, choices=[1, 2, 3, 4], default=1,
                    help="colour bands by height, using filament changes (default 1)")
     g.add_argument("--base-color", action="store_true",
-                   help="give the base (and sea) its own colour (one more filament change)")
+                   help="give the base its own colour (one more filament change)")
     g.add_argument("--name", help="output file name prefix")
     g.add_argument("-o", "--out", default="output", help="output directory (default ./output)")
 

@@ -363,7 +363,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </div>
         <div class="hint" id="colorHint">Filament changes at set layers. Works with AMS lite or with manual swaps on a single spool.</div>
       </div>
-      <label class="check"><input type="checkbox" id="base_color"> <span>Base &amp; sea in own colour<small>One filament change: blue sea or a dark base under the land and text</small></span></label>
+      <label class="check"><input type="checkbox" id="sea_color" checked> <span>Sea in its own colour<small>Blue sea with a sharp step at every coastline (when there is sea)</small></span></label>
+      <label class="check"><input type="checkbox" id="base_color"> <span>Base in its own colour<small>Dark base under the land and name plate text</small></span></label>
       <label class="check"><input type="checkbox" id="separate_route"> <span>Route as a separate part<small>Its own filament in the .3mf (needs AMS lite / AMS)</small></span></label>
       <div class="swatches" id="swatches"></div>
     </div>
@@ -686,7 +687,10 @@ function updateColorHint() {
 function bandColors() {
   // Colours in print order (bottom first): optional base, then the bands.
   const out = [];
-  if ($("base_color").checked) out.push(state.swatch.base || (state.last && state.last.info.water ? SEA_DEFAULT : BASE_DEFAULT));
+  const water = state.last && state.last.info.water;
+  if ($("base_color").checked || ($("sea_color").checked && water)) {
+    out.push(water ? state.swatch.sea || SEA_DEFAULT : state.swatch.base || BASE_DEFAULT);
+  }
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => out.push(state.swatch[`b${state.colors}_${i}`] || c));
   else if (out.length) out.push(state.swatch.solid || "#7d9a6a");
   return out;
@@ -699,9 +703,12 @@ function renderSwatches() {
     i.oninput = () => { state.swatch[key] = i.value; saveSettings(); viewer.recolor(); };
     w.append(i, document.createTextNode(label)); box.append(w);
   };
-  if ($("base_color").checked) add("base", "Base / sea", state.last && state.last.info.water ? SEA_DEFAULT : BASE_DEFAULT);
+  const water = state.last ? state.last.info.water : true;  // before the first build, assume there may be sea
+  const sea = $("sea_color").checked && water;
+  if (sea) add("sea", "Sea", SEA_DEFAULT);
+  else if ($("base_color").checked) add("base", "Base", BASE_DEFAULT);
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
-  else if ($("base_color").checked) add("solid", "Terrain", "#7d9a6a");
+  else if (sea || $("base_color").checked) add("solid", "Land", "#7d9a6a");
   if ($("separate_route").checked && state.route !== "none") add("route", "Route", ROUTE_DEFAULT);
   viewer.recolor();
 }
@@ -709,7 +716,7 @@ function saveSettings() {
   const s = { route: state.route, shape: state.shape, colors: state.colors, swatch: state.swatch,
               printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value,
               water: state.water, exag_auto: $("exagAuto").checked, plate: plateFields(), sport: state.sport };
-  for (const k of ["label", "base_color", "separate_route"]) s[k] = $(k).checked;
+  for (const k of ["label", "base_color", "separate_route", "sea_color"]) s[k] = $(k).checked;
   for (const k in DEFAULTS) s[k] = $(k).value;
   store("strava3d-settings-v2", s);
 }
@@ -717,6 +724,7 @@ function applySettings(s) {
   s = s || {};
   for (const k in DEFAULTS) $(k).value = s[k] != null ? s[k] : DEFAULTS[k];
   for (const k of ["label", "base_color", "separate_route"]) $(k).checked = !!s[k];
+  $("sea_color").checked = s.sea_color !== false;
   $("label_text").value = s.label_text || "";
   if (s.layer) $("layer").value = s.layer;
   state.swatch = s.swatch || {};
@@ -735,7 +743,7 @@ function applySettings(s) {
 document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); updateExag(); saveSettings(); }));
 $("label").onchange = () => { updateShapeUi(); saveSettings(); };
 $("label_text").oninput = saveSettings;
-$("base_color").onchange = $("separate_route").onchange = () => { renderSwatches(); saveSettings(); };
+$("base_color").onchange = $("separate_route").onchange = $("sea_color").onchange = () => { renderSwatches(); saveSettings(); };
 $("reset").onclick = () => { const p = $("printer").value; applySettings({ printer: p }); applyPrinter(true); saveSettings(); };
 
 // ---------- Build ----------
@@ -745,6 +753,7 @@ $("build").onclick = async () => {
   fd.append("route", state.route);
   fd.set("exaggeration", $("exagAuto").checked ? "auto" : $("exaggeration").value);
   fd.append("water", state.water);
+  fd.append("sea_color", $("sea_color").checked ? "auto" : "off");
   fd.append("label_stats", plateFields().join(","));
   fd.append("shape", state.shape);
   fd.append("colors", state.colors);

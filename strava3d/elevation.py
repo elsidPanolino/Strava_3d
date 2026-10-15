@@ -16,7 +16,7 @@ from .geo import BBox
 TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 TILE_SIZE = 256
 MAX_ZOOM = 15
-MAX_TILES = 64
+MAX_TILES = 100
 
 
 def cache_dir() -> Path:

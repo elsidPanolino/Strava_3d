@@ -62,16 +62,20 @@ def print_guide(info: dict) -> list[str]:
                 "stand out, use \"Route as a separate part\" with AMS lite, or paint it afterwards."
             )
 
-    if info.get("water") and not bands:
+    if info.get("sea_color"):
         steps.append(
-            "Tip: this area has sea. Turn on \"Base & sea in own colour\" (--base-color) to print the sea "
-            "blue with one filament change."
+            f"Colour 1 is the sea (and the base under it). Colour 2 starts at layer {bands[0]['layer']}: "
+            f"the land rises {info['coast_step_mm']:.1f} mm above the flat sea, so every coastline is a "
+            "sharp step and a clean colour edge."
         )
-    elif info.get("water") and bands[0]["z"] == info["base_mm"]:
-        steps.append("The sea is the flat surface at the base, so it prints in colour 1 with the base.")
+    elif info.get("water"):
+        steps.append(
+            "Tip: this area has sea. Turn on \"Sea in its own colour\" (--sea-color on) to print it blue "
+            "with one filament change at the coastline."
+        )
     if info.get("label_mm") and not bands:
         steps.append(
-            "Tip: turn on \"Base & sea in own colour\" to print the name plate text in a contrasting colour."
+            "Tip: turn on \"Base in its own colour\" to print the name plate text in a contrasting colour."
         )
     steps.append(f"Estimated filament: about {info['filament_g']} g PLA.")
     return steps

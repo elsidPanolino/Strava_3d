@@ -69,6 +69,10 @@ def parse_params(form) -> ModelParams:
     if water not in ("auto", "on", "off"):
         raise ValueError("water must be auto, on or off")
     params.water = water
+    sea = form.get("sea_color", "auto")
+    params.sea_color = {"auto": None, "1": True, "on": True, "0": False, "off": False}.get(sea)
+    if params.sea_color is None and sea not in ("auto", ""):
+        raise ValueError("sea_color must be auto, on or off")
     for field, (attr, typ) in PARAM_FIELDS.items():
         if form.get(field) not in (None, ""):
             value = typ(form[field])

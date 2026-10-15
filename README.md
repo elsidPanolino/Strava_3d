@@ -117,6 +117,8 @@ The command also prints a short guide, including the layers for any filament cha
 | `--shape` | rectangle | `rectangle`, `square`, `circle`, `hexagon` |
 | `--exaggeration` | auto | Vertical exaggeration, or `auto` to make the relief about 12% of the model size |
 | `--water` | auto | `auto`/`on`/`off`: flatten the sea at the base and lift the land |
+| `--sea-color` | auto | Sea in its own colour when there is sea (`on`/`off` to force) |
+| `--coast-step` | 1.0 | Height of the land's edge above the flat sea, in mm |
 | `--route` | raised | `raised`, `groove`, or `none` |
 | `--route-width` | 1.6 | Route line width in mm (at least 3× the nozzle) |
 | `--route-height` | 1.0 | How far the route is raised or grooved, in mm |
@@ -125,7 +127,7 @@ The command also prints a short guide, including the layers for any filament cha
 | `--label-text` | activity name | Custom name plate title |
 | `--label-stats` | distance,elevation,time,date | Name plate stats from `distance,elevation,time,speed,date` |
 | `--colors` | 1 | 2–4 colour bands by height, using filament changes |
-| `--base-color` | off | Base and sea in their own colour (one more filament change) |
+| `--base-color` | off | Base in its own colour (one more filament change) |
 | `--base` | 3 | Base thickness under the lowest point, in mm |
 | `--padding` | 0.1 | Terrain margin around the route (fraction of route size) |
 | `--resolution` | 0.5 | Mesh cell size in mm (smaller gives more detail and bigger files) |
@@ -135,10 +137,10 @@ The command also prints a short guide, including the layers for any filament cha
 
 ```bash
 # Palawan ride: blue sea, green-brown-white land, ride stats on the plate, square tile
-strava3d build 1234567890 --square --base-color --colors 3 --label --label-stats distance,elevation,time,speed,date
+strava3d build 1234567890 --square --colors 3 --label --label-stats distance,elevation,time,speed,date
 
 # Try it without Strava, using the included example ride
-strava3d gpx examples/palawan-puerto-princesa-sabang.gpx --square --base-color --colors 3 --label
+strava3d gpx examples/palawan-puerto-princesa-sabang.gpx --square --colors 3 --label
 
 # A1 mini, 3 colours by height on a dark base, with a name plate
 strava3d build 1234567890 --colors 3 --base-color --label
@@ -157,13 +159,17 @@ strava3d build 1234567890 --printer a1 --size 240 --shape circle
 
 Elevation tiles include the sea floor (down to about −580 m around Palawan). That would
 make the sea look like deep terrain and squash the island. Instead, when at least 2% of the
-area is sea, strava3d:
+area is sea, strava3d separates sea from land clearly:
 
-- flattens everything at or below sea level into a flat surface at the top of the base
-- lifts the land 0.6 mm (3 layers), ramping up over the first 3 m above sea level so
-  coastlines stay smooth
-- with **Base & sea in own colour** (`--base-color`), adds one filament change at the top of
-  the base, so the sea and base print blue and the land in your land colours
+- **Flat sea**: everything below the coastline becomes a flat surface on top of the base.
+- **Sharp shoreline**: the land rises in a 1.0 mm (5-layer) step at the coast (`--coast-step`).
+  Land/sea is measured on a 4× finer grid and averaged, so the edge follows the real
+  shoreline and is never more than one mesh cell wide.
+- **Clean coastline data**: the shoreline is traced at 1 m, not 0 m, because the elevation
+  tiles blend coarse bathymetry into a blocky 0–1 m fringe around every coast. At 1 m,
+  islands and bays keep their natural shapes.
+- **Blue sea by default**: one filament change at the top of the base, so the sea prints in its
+  own colour and every coastline is a clean colour edge (`--sea-color off` to disable).
 
 Long point-to-point rides (for example, Puerto Princesa → Sabang) come out long and thin.
 Pick the **Square** shape to show more of the island at the same scale and use the whole

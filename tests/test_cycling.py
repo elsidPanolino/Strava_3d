@@ -26,7 +26,7 @@ def test_sea_flattened_and_land_lifted():
     assert np.allclose(sea, info["base_mm"])  # flat sea at the base top
     land = z[:, int(nx * 0.5):]
     assert land.min() >= info["base_mm"] + 0.6 - 1e-6  # land lifted 3 layers
-    assert info["elevation_range_m"][0] == 0  # reports land range, not sea floor
+    assert info["elevation_range_m"][0] == 1.0  # land range from the 1 m coastline, not the sea floor
     assert m.terrain.is_watertight()
 
 
@@ -78,3 +78,30 @@ def test_gpx_track_stats(tmp_path):
     assert s["elapsed_time_s"] == 1300
     assert s["avg_speed_kmh"] == pytest.approx(20.0, abs=0.5)
     assert s["date"] == "2026-09-27"
+
+
+def flat_coast(bbox, nx, ny):
+    """Very gentle coastal plain: 0.2 m rise per column, sea on the west."""
+    x = np.arange(nx)[None, :].repeat(ny, axis=0)
+    return (x - nx * 0.4) * 0.2
+
+
+def test_coastline_is_a_crisp_step_even_on_flat_coast():
+    m = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shape="square", route_style="none"),
+                    elevation=flat_coast)
+    base, step = m.info["base_mm"], m.info["coast_step_mm"]
+    assert step == pytest.approx(1.0)
+    row = m.heightmap[m.heightmap.shape[0] // 2]
+    partial = (row > base + 1e-6) & (row < base + step - 1e-6)
+    assert partial.sum() <= 2  # the shoreline ramp is at most ~one cell wide
+    assert row[: int(len(row) * 0.35)].max() == pytest.approx(base)
+    assert row[int(len(row) * 0.45):].min() >= base + step - 1e-6
+
+
+def test_sea_colour_is_automatic_and_can_be_turned_off():
+    auto = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80), elevation=island)
+    assert auto.info["sea_color"] and auto.info["bands"][0]["z"] == auto.info["base_mm"]
+    off = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, sea_color=False), elevation=island)
+    assert not off.info["sea_color"] and off.info["bands"] == []
+    inland = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80), elevation=lambda b, nx, ny: 100 + np.zeros((ny, nx)) + np.arange(nx))
+    assert not inland.info["water"] and inland.info["bands"] == []

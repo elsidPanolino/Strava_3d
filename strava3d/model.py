@@ -29,7 +29,11 @@ class ModelParams:
     target_relief_frac: float = 0.12  # auto exaggeration aims for relief = this x model size
     max_auto_exaggeration: float = 12.0
     water: str = "auto"  # auto | on | off: flatten the sea (elevation <= 0) and lift the land
-    sea_level_m: float = 0.0
+    # Coastline threshold. Elevation tiles blend coarse bathymetry into a blocky 0-1 m fringe
+    # around coasts; tracing the shore at 1 m follows the detailed land data instead.
+    sea_level_m: float = 1.0
+    coast_step_mm: float = 1.0  # height of the land's edge above the flat sea
+    sea_color: bool | None = None  # sea in its own colour (filament change at the sea surface); None = auto
     base_mm: float = 3.0  # thickness of the solid base under the lowest point
     padding: float = 0.1  # extra terrain around the route, as fraction of its size
     shape: str = "rectangle"  # rectangle | square | circle | hexagon
@@ -160,7 +164,7 @@ def build_model(
         # Sea becomes a flat surface at the base; land starts a few layers higher so a
         # single filament change at the base top separates sea and land colours.
         ref = p.sea_level_m
-        lift = snap(0.6, layer)
+        lift = snap(p.coast_step_mm, layer)
         land = inside[inside > ref]
     else:
         water, ref, lift, land = False, float(inside.min()), 0.0, inside
@@ -172,9 +176,15 @@ def build_model(
         exaggeration = float(np.clip(target / max(relief_m * scale, 1e-6), 1.0, p.max_auto_exaggeration))
         exaggeration = round(exaggeration, 1)
     if water:
-        # Ramp the land up over its first 3 m so coastlines follow the true contour
-        # instead of stair-stepping along grid cells.
-        coast = np.clip((elev - ref) / 3.0, 0, 1)
+        # A crisp step at the shoreline: land coverage per vertex, anti-aliased from a 2x
+        # finer grid so the edge follows the true contour and is at most one cell wide.
+        fine = 4
+        nxf, nyf = (nx - 1) * fine + 1, (ny - 1) * fine + 1
+        if elevation is None:
+            elev_f = elevation_grid(bbox, nxf, nyf, fetcher=fetcher)
+        else:
+            elev_f = np.asarray(elevation(bbox, nxf, nyf), dtype=float)
+        coast = land_coverage(elev_f, ref, fine)
         z = base_mm + lift * coast + np.maximum(elev - ref, 0) * scale * exaggeration
     else:
         z = base_mm + (elev - ref) * scale * exaggeration
@@ -242,7 +252,8 @@ def build_model(
 
     # --- Colour bands (filament changes by height) -----------------------------------------
     terrain_top = float(z[shape_mask].max() if shape_mask is not None else z.max())
-    bands = colour_bands(p.colors, p.base_color, base_mm, terrain_top, layer, printer, base_mm + lift)
+    sea_color = bool(water and p.sea_color is not False)
+    bands = colour_bands(p.colors, p.base_color or sea_color, base_mm, terrain_top, layer, printer, base_mm + lift)
 
     area = _surface_area(terrain) + (_surface_area(route_mesh) if route_mesh is not None else 0)
     volume = terrain.volume() + (route_mesh.volume() if route_mesh is not None else 0)
@@ -264,6 +275,8 @@ def build_model(
         "bands": bands,
         "exaggeration": float(exaggeration),
         "water": bool(water),
+        "sea_color": sea_color,
+        "coast_step_mm": lift,
         "sea_fraction": round(sea_fraction, 3),
         "filament_g": _filament_grams(volume, area),
         "warnings": warnings,
@@ -289,6 +302,25 @@ def _filament_grams(volume_mm3: float, area_mm2: float, infill=0.15, shell_mm=0.
     """Rough PLA estimate: solid shell (walls, top, bottom) plus sparse infill."""
     shell = min(area_mm2 * shell_mm, volume_mm3)
     return int(round((shell + (volume_mm3 - shell) * infill) * density / 1000))
+
+
+def land_coverage(elev_fine: np.ndarray, sea_level: float, fine: int) -> np.ndarray:
+    """Fraction (0..1) of land around each grid vertex.
+
+    `elev_fine` is sampled on a grid `fine` times denser than the mesh (vertex i is fine
+    index i * fine). Averaging the land/sea test over each vertex's neighbourhood gives an
+    anti-aliased shoreline that follows the detailed land data rather than the blocky
+    bathymetry pixels.
+    """
+    land = (elev_fine > sea_level).astype(float)
+    # Tent filter spanning one mesh cell on each side of the vertex.
+    w = 1 - np.abs(np.arange(-fine + 1, fine)) / fine
+    w /= w.sum()
+    r = len(w) // 2
+    padded = np.pad(land, r, mode="edge")
+    rows = sum(w[k] * padded[k:k + land.shape[0], :] for k in range(len(w)))
+    cov = sum(w[k] * rows[:, k:k + land.shape[1]] for k in range(len(w)))
+    return cov[::fine, ::fine]
 
 
 def colour_bands(colors: int, base_color: bool, base_mm: float, top_mm: float, layer: float, printer,
