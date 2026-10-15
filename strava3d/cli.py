@@ -64,6 +64,7 @@ def _params(args, plate=None) -> ModelParams:
         label_lines=[args.label_text, *plate[1:]] if args.label_text and plate else (plate or []),
         colors=args.colors,
         base_color=args.base_color,
+        single_color=args.single_color,
     )
 
 
@@ -180,6 +181,8 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
                    help=f"stats on the name plate, comma separated from: {','.join(LABEL_FIELDS)}")
     g.add_argument("--colors", type=int, choices=[1, 2, 3, 4], default=1,
                    help="colour bands by height, using filament changes (default 1)")
+    g.add_argument("--single-color", action="store_true",
+                   help="print in one colour: no colour bands, sea/base colour or separate route")
     g.add_argument("--base-color", action="store_true",
                    help="give the base its own colour (one more filament change)")
     g.add_argument("--name", help="output file name prefix")

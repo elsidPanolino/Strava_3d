@@ -59,6 +59,7 @@ def parse_params(form) -> ModelParams:
     if params.colors not in (1, 2, 3, 4):
         raise ValueError("colors must be 1-4")
     params.base_color = form.get("base_color") in ("1", "true", "on")
+    params.single_color = form.get("single_color") in ("1", "true", "on")
     params.label = form.get("label") in ("1", "true", "on")
     exag = (form.get("exaggeration") or "auto").strip().lower()
     if exag != "auto":

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +50,7 @@ class ModelParams:
     label_height_mm: float = 0.8  # how far the text is raised
     colors: int = 1  # colour bands by height (1 = single colour)
     base_color: bool = False  # give the base / plinth its own colour (adds a band)
+    single_color: bool = False  # one filament only: overrides every colour option above
 
 
 @dataclass
@@ -80,6 +81,9 @@ def build_model(
 ) -> TerrainModel:
     """Build the model. `elevation(bbox, nx, ny)` can be injected (defaults to terrain tiles)."""
     p = params or ModelParams()
+    if p.single_color:
+        # One spool, no filament changes: no bands, sea/base colour or separate route part.
+        p = replace(p, colors=1, base_color=False, sea_color=False, separate_route=False)
     shape = "square" if p.square and p.shape == "rectangle" else p.shape
     if p.route_style not in ROUTE_STYLES:
         raise ValueError(f"route_style must be one of {ROUTE_STYLES}")
@@ -276,6 +280,7 @@ def build_model(
         "exaggeration": float(exaggeration),
         "water": bool(water),
         "sea_color": sea_color,
+        "single_color": p.single_color,
         "coast_step_mm": lift,
         "sea_fraction": round(sea_fraction, 3),
         "filament_g": _filament_grams(volume, area),

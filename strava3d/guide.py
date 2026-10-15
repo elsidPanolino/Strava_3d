@@ -64,7 +64,13 @@ def print_guide(info: dict) -> list[str]:
                 "stand out, use \"Route as a separate part\" with AMS lite, or paint it afterwards."
             )
 
-    if info.get("sea_color"):
+    if info.get("single_color"):
+        steps.append(
+            "One colour: load a single spool and print as is. Don't add any colour changes. "
+            + ("The flat sea and the step at every coastline still show the shoreline. " if info.get("water") else "")
+            + "The raised route and name plate show up through light and shadow."
+        )
+    elif info.get("sea_color"):
         steps.append(
             f"Colour 1 is the sea (and the base under it). Colour 2 starts at layer {bands[0]['layer']}: "
             f"the land rises {info['coast_step_mm']:.1f} mm above the flat sea, so every coastline is a "
@@ -75,7 +81,7 @@ def print_guide(info: dict) -> list[str]:
             "Tip: this area has sea. Turn on \"Sea in its own colour\" (--sea-color on) to print it blue "
             "with one filament change at the coastline."
         )
-    if info.get("label_mm") and not bands:
+    if info.get("label_mm") and not bands and not info.get("single_color"):
         steps.append(
             "Tip: turn on \"Base in its own colour\" to print the name plate text in a contrasting colour."
         )

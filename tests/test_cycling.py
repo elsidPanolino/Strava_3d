@@ -105,3 +105,17 @@ def test_sea_colour_is_automatic_and_can_be_turned_off():
     assert not off.info["sea_color"] and off.info["bands"] == []
     inland = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80), elevation=lambda b, nx, ny: 100 + np.zeros((ny, nx)) + np.arange(nx))
     assert not inland.info["water"] and inland.info["bands"] == []
+
+
+def test_single_color_overrides_every_colour_option():
+    from strava3d.guide import print_guide
+
+    m = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, single_color=True, colors=4, base_color=True,
+                                      separate_route=True), elevation=island)
+    info = m.info
+    assert info["single_color"] and info["bands"] == [] and not info["sea_color"]
+    assert m.route is None  # no separate route part
+    assert info["water"]  # the sea is still flattened, so the coastline step remains
+    guide = print_guide({**info, "route_style": "raised"})
+    assert any("One colour" in g for g in guide)
+    assert not any("Colour bands" in g or "Tip:" in g for g in guide)
