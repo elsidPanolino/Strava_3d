@@ -33,6 +33,17 @@ def test_frame_text_is_raised_on_the_front_band():
     assert plain.vertices[:, 2].max() == pytest.approx(pinfo["outer_mm"][2])
 
 
+def test_frame_text_can_be_engraved():
+    mesh, info = build_frame(FrameParams(tile_w=100, tile_d=100, tile_h=15, title="TAYTAY - EL NIDO",
+                                         stats="65.8 KM", text_style="engraved"))
+    h = info["outer_mm"][2]
+    assert mesh.is_watertight() and info["text_style"] == "engraved"
+    assert mesh.vertices[:, 2].max() == pytest.approx(h)  # nothing sticks up
+    cut = mesh.vertices[(mesh.vertices[:, 2] < h - 0.3) & (mesh.vertices[:, 2] > 1)]
+    assert cut[:, 2].min() == pytest.approx(h - 0.6, abs=0.01) and cut[:, 1].max() <= info["band_mm"]
+    assert any("cut 0.6 mm into the front band" in g for g in frame_guide(info))
+
+
 def test_frame_too_big_for_bed_suggests_tile_size():
     _, info = build_frame(FrameParams(tile_w=170, tile_d=170, tile_h=20, title="x"))
     assert not info["fits"]

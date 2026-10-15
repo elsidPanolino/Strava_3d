@@ -137,6 +137,13 @@ input[type=text], input[type=number] { width: 100%; font: inherit; padding: 9px 
         <div class="field"><label for="title">Title</label><input type="text" id="title" maxlength="60" placeholder="e.g. Morning Ride"></div>
         <div class="field"><label for="stats">Stats</label><input type="text" id="stats" maxlength="90" placeholder="e.g. 65.8 km · 582 m elevation · 3h 25m"></div>
         <div class="field">
+          <label for="text_style">Letters</label>
+          <select id="text_style">
+            <option value="raised">Raised (stand up from the band)</option>
+            <option value="engraved">Engraved (cut into the band)</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="band_mm">Front band depth <output data-for="band_mm" data-unit=" mm"></output></label>
           <input type="range" id="band_mm" min="10" max="30" step="1" value="16">
         </div>
@@ -238,7 +245,7 @@ $("build").onclick = async () => {
     tile_w: $("tile_w").value, tile_d: $("tile_d").value, tile_h: $("tile_h").value,
     wall_mm: $("wall_mm").value, headroom_mm: $("headroom_mm").value, clearance_mm: $("clearance_mm").value,
     floor: $("floor").checked, mount: $("mount").checked, vents: $("vents").checked, notches: $("notches").checked,
-    printer: $("printer").value, band_mm: $("band_mm").value,
+    printer: $("printer").value, band_mm: $("band_mm").value, text_style: $("text_style").value,
     title: $("useText").checked ? $("title").value : "", stats: $("useText").checked ? $("stats").value : "",
   };
   $("build").disabled = true; $("busy").classList.add("on");

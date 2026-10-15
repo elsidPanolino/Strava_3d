@@ -26,7 +26,8 @@ class FrameParams:
     title: str = ""
     stats: str = ""
     band_mm: float = 16.0  # depth of the front band when it carries text
-    text_mm: float = 0.6  # raised text height
+    text_mm: float = 0.6  # text height (raised) or depth (engraved)
+    text_style: str = "raised"  # raised (letters stand up) or engraved (letters cut into the band)
     font: str = "inter"  # "inter" (Inter Bold or an Inter-like sans) or "default"
     uppercase: bool = True  # all capitals for title and stats
     printer: str = "a1mini"
@@ -194,7 +195,8 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         pad = max(1.0, wall / 2)
         i0, i1 = int(pad / cell), nx - int(pad / cell)
         j0, j1 = int(pad / cell), ny - int(pad / cell)
-        z[j0:j1, i0:i1] += text_h * text_mask(text, i1 - i0, j1 - j0, family=p.font, upper=p.uppercase)
+        sign = -1 if p.text_style == "engraved" else 1
+        z[j0:j1, i0:i1] += sign * text_h * text_mask(text, i1 - i0, j1 - j0, family=p.font, upper=p.uppercase)
         shells.append(heightmap_solid(z, out_w / (nx - 1), band / (ny - 1)))
     else:
         shells.append(_box(0, 0, out_w, band, 0, height))
@@ -228,6 +230,8 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         "floor_mm": floor,
         "band_mm": band,
         "has_text": bool(text),
+        "text_style": p.text_style if text else "",
+        "text_mm": text_h if text else 0,
         "fits": bool(fits and height <= printer.bed_z),
         "printer": printer.to_dict(),
         "warnings": warnings,
@@ -265,7 +269,10 @@ def frame_guide(info: dict) -> list[str]:
             "level, leaving the heads about 3 mm out (heads up to 8.5 mm wide, shanks up to 4 mm). Push the frame "
             "onto them and slide it down so it locks. Hang it with the text band at the bottom."
         )
-    if info["has_text"]:
+    if info["has_text"] and info.get("text_style") == "engraved":
+        steps.append(f"The title and stats are cut {info['text_mm']:.1f} mm into the front band. For coloured "
+                     "letters, fill them with acrylic paint or a paint pen and wipe the surface clean.")
+    elif info["has_text"]:
         steps.append("The title and stats are raised on the front band. For coloured text, add a filament "
                      f"change at the top of the frame (Z {info['outer_mm'][2]:.2f} mm) in Bambu Studio.")
     steps.append(f"Estimated filament: about {info['filament_g']} g PLA.")
