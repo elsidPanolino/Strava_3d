@@ -27,6 +27,8 @@ class FrameParams:
     stats: str = ""
     band_mm: float = 16.0  # depth of the front band when it carries text
     text_mm: float = 0.6  # raised text height
+    font: str = "inter"  # "inter" (Inter Bold or an Inter-like sans) or "default"
+    uppercase: bool = True  # all capitals for title and stats
     printer: str = "a1mini"
     layer_mm: float = 0.2
     mount: bool = False  # keyhole slots in the back (underside of the floor) for hanging on a wall
@@ -130,7 +132,7 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         pad = max(1.0, wall / 2)
         i0, i1 = int(pad / cell), nx - int(pad / cell)
         j0, j1 = int(pad / cell), ny - int(pad / cell)
-        z[j0:j1, i0:i1] += text_h * text_mask(text, i1 - i0, j1 - j0)
+        z[j0:j1, i0:i1] += text_h * text_mask(text, i1 - i0, j1 - j0, family=p.font, upper=p.uppercase)
         shells.append(heightmap_solid(z, out_w / (nx - 1), band / (ny - 1)))
     else:
         shells.append(_box(0, 0, out_w, band, 0, height))
