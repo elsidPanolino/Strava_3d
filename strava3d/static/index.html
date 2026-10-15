@@ -65,6 +65,19 @@ main {
   margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
   display: flex; align-items: center; gap: 8px;
 }
+/* Collapsible cards: click a header to fold the card down to its title. */
+.card h2.collapsible { cursor: pointer; user-select: none; border-radius: 6px; }
+.card h2.collapsible:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.card h2.collapsible::after {
+  content: ""; margin-left: auto; flex: none; width: 7px; height: 7px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s;
+}
+.card h2.collapsible:has(.chips)::after { margin-left: 10px; }
+.card h2.collapsible .chips { margin-left: auto !important; }
+.card.collapsed h2.collapsible { margin-bottom: 0; }
+.card.collapsed h2.collapsible::after { transform: translateY(1px) rotate(-45deg); }
+.card.collapsed > :not(h2) { display: none !important; }
 .step { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
   background: var(--accent); color: var(--accent-ink); font-size: 11px; }
 a { color: var(--accent); }
@@ -354,6 +367,14 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
     <div class="card">
       <h2><span class="step">4</span> Colours</h2>
       <div class="field">
+        <div class="seg" id="modeSeg">
+          <button data-v="one">One colour</button>
+          <button data-v="multi" class="on">Multi-colour</button>
+        </div>
+        <div class="hint" id="modeHint"></div>
+      </div>
+      <div id="multiOpts">
+      <div class="field">
         <div class="lbl">Colour bands by height</div>
         <div class="seg" id="colorSeg">
           <button data-v="1" class="on">1</button>
@@ -366,6 +387,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
       <label class="check"><input type="checkbox" id="sea_color" checked> <span>Sea in its own colour<small>Blue sea with a sharp step at every coastline (when there is sea)</small></span></label>
       <label class="check"><input type="checkbox" id="base_color"> <span>Base in its own colour<small>Dark base under the land and name plate text</small></span></label>
       <label class="check"><input type="checkbox" id="separate_route"> <span>Route as a separate part<small>Its own filament in the .3mf (needs AMS lite / AMS)</small></span></label>
+      </div>
       <div class="swatches" id="swatches"></div>
     </div>
 
@@ -688,6 +710,7 @@ function updateColorHint() {
 function bandColors() {
   // Colours in print order (bottom first): optional base, then the bands.
   const out = [];
+  if (state.single) return out;  // one filament, no colour changes
   const water = state.last && state.last.info.water;
   if ($("base_color").checked || ($("sea_color").checked && water)) {
     out.push(water ? state.swatch.sea || SEA_DEFAULT : state.swatch.base || BASE_DEFAULT);
@@ -704,6 +727,7 @@ function renderSwatches() {
     i.oninput = () => { state.swatch[key] = i.value; saveSettings(); viewer.recolor(); };
     w.append(i, document.createTextNode(label)); box.append(w);
   };
+  if (state.single) { add("filament", "Filament", FILAMENT_DEFAULT); viewer.recolor(); return; }
   const water = state.last ? state.last.info.water : true;  // before the first build, assume there may be sea
   const sea = $("sea_color").checked && water;
   if (sea) add("sea", "Sea", SEA_DEFAULT);
@@ -717,7 +741,8 @@ function renderSwatches() {
 function saveSettings() {
   const s = { route: state.route, shape: state.shape, colors: state.colors, swatch: state.swatch,
               printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value,
-              water: state.water, exag_auto: $("exagAuto").checked, plate: plateFields(), sport: state.sport };
+              water: state.water, exag_auto: $("exagAuto").checked, plate: plateFields(), sport: state.sport,
+              single: state.single };
   for (const k of ["label", "base_color", "separate_route", "sea_color"]) s[k] = $(k).checked;
   for (const k in DEFAULTS) s[k] = $(k).value;
   store("strava3d-settings-v2", s);
@@ -740,8 +765,18 @@ function applySettings(s) {
     state.sport = s.sport;
     document.querySelectorAll("#sportChips button").forEach(x => x.classList.toggle("on", x.dataset.v === s.sport));
   }
+  setMode(s.single ? "one" : "multi");
   syncOutputs(); updateShapeUi(); renderSwatches(); updateExag();
 }
+function setMode(v) {
+  state.single = v === "one";
+  document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  $("multiOpts").classList.toggle("hidden", state.single);
+  $("modeHint").textContent = state.single
+    ? "The whole model prints from one spool with no filament changes. The coastline step and the raised route still show through shadows."
+    : "Colour bands, a blue sea, a base colour or a separate route part, using filament changes.";
+}
+document.querySelectorAll("#modeSeg button").forEach(b => (b.onclick = () => { setMode(b.dataset.v); renderSwatches(); saveSettings(); }));
 document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); updateExag(); saveSettings(); }));
 $("label").onchange = () => { updateShapeUi(); saveSettings(); };
 $("label_text").oninput = saveSettings;
@@ -763,6 +798,10 @@ $("build").onclick = async () => {
   fd.append("layer", $("layer").value);
   for (const k of ["label", "base_color", "separate_route"]) if ($(k).checked) fd.append(k, "1");
   if (state.shape === "circle" || state.shape === "hexagon") fd.delete("label");
+  if (state.single) {  // one colour: no bands, sea or base colour, no separate route part
+    fd.set("colors", "1"); fd.set("sea_color", "off"); fd.delete("base_color"); fd.delete("separate_route");
+    fd.append("single_color", "1");
+  }
   fd.append("label_text", $("label_text").value);
   if (state.source === "gpx") fd.append("gpx", state.gpxFile);
   else fd.append("activity_id", state.activity.id);
@@ -999,7 +1038,7 @@ const viewer = (() => {
     const routeRgb = hex2rgb(state.swatch.route || ROUTE_DEFAULT), orange = hex2rgb(ROUTE_DEFAULT);
     const bandOf = (z) => { let k = 0; while (k < bands.length && z > bands[k].z + 1e-6) k++; return colors[k]; };
     // One filament and no colour changes: show the whole print in that filament's colour.
-    const single = bands.length === 0 && state.colors === 1 ? hex2rgb(state.swatch.filament || FILAMENT_DEFAULT) : null;
+    const single = bands.length === 0 && (state.single || state.colors === 1) ? hex2rgb(state.swatch.filament || FILAMENT_DEFAULT) : null;
     const terrainColor = (x, y, z, nz) => {
       if (banded) return bandOf(z);
       if (single) return single;
@@ -1098,6 +1137,34 @@ const viewer = (() => {
 if (new URLSearchParams(location.search).get("error")) {
   toast("Strava authorization was cancelled or failed."); history.replaceState(null, "", "/");
 }
+// ---------- Collapsible cards ----------
+(function collapsibleCards() {
+  const folded = new Set(recall("strava3d-collapsed") || []);
+  document.querySelectorAll(".card > h2").forEach(h2 => {
+    const card = h2.parentElement;
+    const key = card.id || h2.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+    const set = (on) => {
+      card.classList.toggle("collapsed", on);
+      h2.setAttribute("aria-expanded", String(!on));
+      if (on) folded.add(key); else folded.delete(key);
+      store("strava3d-collapsed", [...folded]);
+    };
+    h2.classList.add("collapsible");
+    h2.tabIndex = 0;
+    h2.setAttribute("role", "button");
+    h2.title = "Click to collapse or expand";
+    set(folded.has(key));
+    h2.addEventListener("click", (e) => {
+      if (e.target.closest("button, a, input, select")) return;  // e.g. the Ride/Run chips
+      set(!card.classList.contains("collapsed"));
+    });
+    h2.addEventListener("keydown", (e) => {
+      if (e.target !== h2 || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault(); set(!card.classList.contains("collapsed"));
+    });
+  });
+})();
+
 const saved = recall("strava3d-settings-v2");
 applySettings(saved);
 loadPrinters(saved).catch(e => toast(e.message));
