@@ -17,6 +17,8 @@
   --accent-ink: #ffffff;
   --accent-soft: #fff1ea;
   --danger: #c62828;
+  --warn-bg: #fff6dc;
+  --warn-ink: #6b4e00;
   --viewer-bg: #e9e7e2;
   --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
   color-scheme: light;
@@ -30,6 +32,8 @@
     --muted: #9c9a93;
     --border: #34332f;
     --accent-soft: #3a2116;
+    --warn-bg: #3a3014;
+    --warn-ink: #f3d98a;
     --viewer-bg: #222220;
     --shadow: none;
     color-scheme: dark;
@@ -63,11 +67,13 @@ main {
 }
 .step { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
   background: var(--accent); color: var(--accent-ink); font-size: 11px; }
-button, .btn {
+a { color: var(--accent); }
+button, .btn, select {
   font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
   background: var(--panel); color: var(--text); padding: 8px 14px; text-decoration: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
+select { width: 100%; padding: 9px 10px; display: block; }
 button:hover, .btn:hover { background: var(--panel-2); }
 button:disabled { opacity: .5; cursor: default; }
 .primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -77,7 +83,7 @@ button:disabled { opacity: .5; cursor: default; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--panel-2); border-radius: 8px; padding: 3px; margin-bottom: 12px; }
 .tabs button { border: none; background: transparent; padding: 7px; }
 .tabs button.on { background: var(--panel); box-shadow: var(--shadow); font-weight: 600; }
-.list { max-height: 360px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.list { max-height: 330px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
 .act {
   display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: center; width: 100%;
   text-align: left; padding: 8px; border-radius: 8px; border: 1px solid transparent; background: none;
@@ -95,23 +101,30 @@ button:disabled { opacity: .5; cursor: default; }
 .drop.over, .drop:hover { border-color: var(--accent); color: var(--text); }
 .drop strong { color: var(--text); }
 .field { margin-bottom: 14px; }
-.field label { display: flex; justify-content: space-between; font-weight: 500; margin-bottom: 4px; }
+.field > label, .field > .lbl { display: flex; justify-content: space-between; font-weight: 500; margin-bottom: 4px; }
 .field label output { color: var(--muted); font-variant-numeric: tabular-nums; }
-.field .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 input[type=text], input[type=password] {
   width: 100%; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--panel); color: var(--text); margin-bottom: 10px;
 }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.seg button { padding: 8px 6px; }
 .seg button.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-.check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
+.seg svg { width: 16px; height: 16px; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
 .check input { accent-color: var(--accent); margin-top: 3px; }
 .check small { display: block; color: var(--muted); }
+.check.off { opacity: .5; pointer-events: none; }
 details summary { cursor: pointer; color: var(--muted); margin: 4px 0 12px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); }
+.swatch input { width: 38px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
 .viewer {
   position: relative; background: var(--viewer-bg); border-radius: 12px; overflow: hidden;
-  height: min(70vh, 680px); min-height: 360px; border: 1px solid var(--border);
+  height: min(68vh, 660px); min-height: 360px; border: 1px solid var(--border);
 }
 .viewer canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .viewer canvas:active { cursor: grabbing; }
@@ -123,20 +136,29 @@ details summary { cursor: pointer; color: var(--muted); margin: 4px 0 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .vtools { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
 .vtools button { padding: 6px 10px; font-size: 13px; }
-.inset { position: absolute; left: 12px; bottom: 12px; width: 140px; border-radius: 8px; border: 2px solid var(--panel); box-shadow: var(--shadow); display: none; }
+.vlabel { position: absolute; top: 12px; left: 12px; color: var(--muted); font-size: 12px; background: var(--panel); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); }
+.inset { position: absolute; left: 12px; bottom: 12px; width: 130px; border-radius: 8px; display: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
 .hint-bar { position: absolute; bottom: 12px; right: 12px; color: var(--muted); font-size: 12px; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 16px 0; }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .stats { grid-template-columns: repeat(2, 1fr); } }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .stat .k { color: var(--muted); font-size: 12px; }
 .stat .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat.good .v::after { content: " ✓"; color: #2e7d32; }
+.stat.bad .v { color: var(--danger); }
 .downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .downloads h3 { margin: 0 auto 0 0; font-size: 16px; }
+.warns { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+.warns ul { margin: 0; padding-left: 18px; }
+.guide ol { margin: 0; padding-left: 20px; }
+.guide li { margin-bottom: 6px; }
+.guide li.sub { list-style: none; color: var(--muted); margin: 4px 0 0; }
+.guide .chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--border); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--danger); color: #fff;
   padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
 .setup ol { padding-left: 20px; margin: 0 0 14px; }
 .setup li { margin-bottom: 6px; }
-a { color: var(--accent); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .muted { color: var(--muted); }
 .hidden { display: none !important; }
@@ -194,10 +216,39 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
     </div>
 
     <div class="card">
-      <h2><span class="step">2</span> Model settings</h2>
+      <h2><span class="step">2</span> Printer</h2>
+      <div class="row2">
+        <div class="field" style="margin:0">
+          <label for="printer">Model</label>
+          <select id="printer"></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label for="layer">Layer height</label>
+          <select id="layer">
+            <option value="0.12">0.12 mm · Fine</option>
+            <option value="0.16">0.16 mm · Optimal</option>
+            <option value="0.2" selected>0.20 mm · Standard</option>
+            <option value="0.24">0.24 mm · Draft</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint" id="printerHint"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">3</span> Model</h2>
+      <div class="field">
+        <div class="lbl">Shape</div>
+        <div class="seg" id="shapeSeg">
+          <button data-v="rectangle" title="Rectangle"><svg viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+          <button data-v="square" title="Square"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+          <button data-v="circle" title="Circle"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+          <button data-v="hexagon" title="Hexagon"><svg viewBox="0 0 16 16"><path d="M1.5 8 L4.75 2.4 L11.25 2.4 L14.5 8 L11.25 13.6 L4.75 13.6 Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
       <div class="field">
         <label for="size">Size (longest side) <output data-for="size" data-unit=" mm"></output></label>
-        <input type="range" id="size" min="50" max="300" step="5" value="150">
+        <input type="range" id="size" min="50" max="170" step="5" value="170">
       </div>
       <div class="field">
         <label for="exaggeration">Vertical exaggeration <output data-for="exaggeration" data-unit="×"></output></label>
@@ -205,20 +256,20 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <div class="hint">Use 3–4× for flat rides.</div>
       </div>
       <div class="field">
-        <label>Route</label>
+        <div class="lbl">Route</div>
         <div class="seg" id="routeSeg">
           <button data-v="raised" class="on">Raised</button>
           <button data-v="groove">Groove</button>
           <button data-v="none">None</button>
         </div>
       </div>
-      <label class="check"><input type="checkbox" id="square"> <span>Square tile</span></label>
-      <label class="check"><input type="checkbox" id="separate_route"> <span>Separate route STL<small>For two-colour printing (AMS / MMU)</small></span></label>
+      <label class="check" id="labelCheck"><input type="checkbox" id="label"> <span>Name plate<small>Activity name, distance, elevation and date</small></span></label>
+      <input type="text" id="label_text" class="hidden" placeholder="Title (defaults to the activity name)" maxlength="60">
       <details>
         <summary>Advanced</summary>
         <div class="field">
           <label for="base">Base thickness <output data-for="base" data-unit=" mm"></output></label>
-          <input type="range" id="base" min="1" max="10" step="0.5" value="3">
+          <input type="range" id="base" min="1" max="10" step="0.2" value="3">
         </div>
         <div class="field">
           <label for="padding">Margin around route <output data-for="padding" data-unit="%" data-scale="100"></output></label>
@@ -235,10 +286,31 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </div>
         <div class="field">
           <label for="route_height">Route height / depth <output data-for="route_height" data-unit=" mm"></output></label>
-          <input type="range" id="route_height" min="0.2" max="3" step="0.1" value="1.0">
+          <input type="range" id="route_height" min="0.2" max="3" step="0.2" value="1.0">
+        </div>
+        <div class="field">
+          <label for="label_mm">Name plate depth <output data-for="label_mm" data-unit=" mm"></output></label>
+          <input type="range" id="label_mm" min="10" max="30" step="1" value="16">
         </div>
         <button class="link" id="reset">Reset to defaults</button>
       </details>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">4</span> Colours</h2>
+      <div class="field">
+        <div class="lbl">Colour bands by height</div>
+        <div class="seg" id="colorSeg">
+          <button data-v="1" class="on">1</button>
+          <button data-v="2">2</button>
+          <button data-v="3">3</button>
+          <button data-v="4">4</button>
+        </div>
+        <div class="hint" id="colorHint">Filament changes at set layers. Works with AMS lite or with manual swaps on a single spool.</div>
+      </div>
+      <label class="check"><input type="checkbox" id="base_color"> <span>Base in its own colour<small>Makes name plate text and the terrain stand out</small></span></label>
+      <label class="check"><input type="checkbox" id="separate_route"> <span>Route as a separate part<small>Its own filament in the .3mf (needs AMS lite / AMS)</small></span></label>
+      <div class="swatches" id="swatches"></div>
     </div>
 
     <button class="primary wide" id="build" disabled>Build 3D model</button>
@@ -254,6 +326,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </div>
       </div>
       <div class="overlay" id="busy"><div style="text-align:center"><div class="spinner"></div><div>Downloading elevation and building the mesh…</div></div></div>
+      <div class="vlabel hidden" id="vlabel"></div>
       <div class="vtools hidden" id="vtools">
         <button id="viewTop">Top</button>
         <button id="viewReset">3D view</button>
@@ -265,15 +338,22 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
     <div id="result" class="hidden">
       <div class="stats">
         <div class="stat"><div class="k">Size</div><div class="v" id="sSize"></div></div>
-        <div class="stat"><div class="k">Max height</div><div class="v" id="sHeight"></div></div>
+        <div class="stat"><div class="k">Height</div><div class="v" id="sHeight"></div></div>
         <div class="stat"><div class="k">Elevation</div><div class="v" id="sElev"></div></div>
         <div class="stat"><div class="k">Scale</div><div class="v" id="sScale"></div></div>
+        <div class="stat"><div class="k">Filament</div><div class="v" id="sFil"></div></div>
       </div>
+      <div class="warns hidden" id="warns"><ul></ul></div>
       <div class="card downloads">
         <h3 id="rTitle"></h3>
-        <a class="btn primary" id="dlTerrain">Download terrain STL</a>
-        <a class="btn" id="dlRoute">Download route STL</a>
+        <a class="btn primary" id="dl3mf">Download .3mf</a>
+        <a class="btn" id="dlTerrain">Terrain STL</a>
+        <a class="btn" id="dlRoute">Route STL</a>
         <a class="btn" id="dlPreview">Preview PNG</a>
+      </div>
+      <div class="card guide">
+        <h2>How to print</h2>
+        <ol id="guide"></ol>
       </div>
     </div>
   </section>
@@ -282,8 +362,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 <script>
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { size: 150, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0 };
-const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised" };
+const DEFAULTS = { size: 170, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0, label_mm: 16 };
+const PALETTES = {
+  2: ["#4f7942", "#f2efe6"],
+  3: ["#4f7942", "#a68a64", "#f2efe6"],
+  4: ["#3d6b35", "#7f9b4f", "#a68a64", "#f2efe6"],
+};
+const BASE_DEFAULT = "#2f2f2d", ROUTE_DEFAULT = "#fc4c02";
+const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised", shape: "rectangle",
+                colors: 1, printers: [], swatch: {}, last: null };
 
 function toast(msg) {
   const t = $("toast"); t.textContent = msg; t.style.display = "block";
@@ -411,6 +498,30 @@ drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
 drop.ondragleave = () => drop.classList.remove("over");
 drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); setGpx(e.dataTransfer.files[0]); };
 
+// ---------- Printer ----------
+const currentPrinter = () => state.printers.find(p => p.key === $("printer").value) || state.printers[0];
+async function loadPrinters(saved) {
+  const r = await api("/api/printers");
+  state.printers = r.printers;
+  const sel = $("printer");
+  for (const p of r.printers) {
+    const o = document.createElement("option"); o.value = p.key; o.textContent = p.name; sel.append(o);
+  }
+  sel.value = (saved && saved.printer && r.printers.some(p => p.key === saved.printer)) ? saved.printer : r.default;
+  applyPrinter(false);
+}
+function applyPrinter(resetSize) {
+  const p = currentPrinter(); if (!p) return;
+  const size = $("size");
+  size.max = p.max_size;
+  if (resetSize || +size.value > p.max_size) size.value = p.max_size;
+  $("printerHint").textContent =
+    `Bed ${p.bed[0]} × ${p.bed[1]} mm, ${p.bed[2]} mm tall · largest model ${p.max_size} mm` + (p.ams ? ` · ${p.ams}` : "");
+  syncOutputs(); updateColorHint();
+}
+$("printer").onchange = () => { applyPrinter(true); saveSettings(); };
+$("layer").onchange = saveSettings;
+
 // ---------- Settings ----------
 function syncOutputs() {
   document.querySelectorAll("output[data-for]").forEach(o => {
@@ -418,34 +529,86 @@ function syncOutputs() {
     o.textContent = (Number.isInteger(v) ? v : v.toFixed(1)) + o.dataset.unit;
   });
 }
+function seg(id, key, onChange) {
+  document.querySelectorAll(`#${id} button`).forEach(b => (b.onclick = () => { setSeg(id, key, b.dataset.v); onChange && onChange(); saveSettings(); }));
+}
+function setSeg(id, key, v) {
+  state[key] = key === "colors" ? +v : v;
+  document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle("on", b.dataset.v === String(v)));
+}
+seg("routeSeg", "route");
+seg("shapeSeg", "shape", updateShapeUi);
+seg("colorSeg", "colors", renderSwatches);
+function updateShapeUi() {
+  const radial = state.shape === "circle" || state.shape === "hexagon";
+  $("labelCheck").classList.toggle("off", radial);
+  $("labelCheck").title = radial ? "Name plates are available for rectangle and square shapes" : "";
+  $("label_text").classList.toggle("hidden", radial || !$("label").checked);
+}
+function updateColorHint() {
+  const p = currentPrinter();
+  const ams = p && p.ams ? `${p.ams} switches filament automatically, or swap by hand with a pause.` : "Add a pause at each change and swap filament by hand.";
+  $("colorHint").textContent = `Filament changes at set layers. ${ams}`;
+}
+function bandColors() {
+  // Colours in print order (bottom first): optional base, then the bands.
+  const out = [];
+  if ($("base_color").checked) out.push(state.swatch.base || BASE_DEFAULT);
+  if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => out.push(state.swatch[`b${state.colors}_${i}`] || c));
+  else if (out.length) out.push(state.swatch.solid || "#7d9a6a");
+  return out;
+}
+function renderSwatches() {
+  const box = $("swatches"); box.innerHTML = "";
+  const add = (key, label, def) => {
+    const w = document.createElement("label"); w.className = "swatch";
+    const i = document.createElement("input"); i.type = "color"; i.value = state.swatch[key] || def;
+    i.oninput = () => { state.swatch[key] = i.value; saveSettings(); viewer.recolor(); };
+    w.append(i, document.createTextNode(label)); box.append(w);
+  };
+  if ($("base_color").checked) add("base", "Base", BASE_DEFAULT);
+  if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
+  else if ($("base_color").checked) add("solid", "Terrain", "#7d9a6a");
+  if ($("separate_route").checked && state.route !== "none") add("route", "Route", ROUTE_DEFAULT);
+  viewer.recolor();
+}
 function saveSettings() {
-  const s = { route: state.route, square: $("square").checked, separate_route: $("separate_route").checked };
+  const s = { route: state.route, shape: state.shape, colors: state.colors, swatch: state.swatch,
+              printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value };
+  for (const k of ["label", "base_color", "separate_route"]) s[k] = $(k).checked;
   for (const k in DEFAULTS) s[k] = $(k).value;
-  store("strava3d-settings", s);
+  store("strava3d-settings-v2", s);
 }
 function applySettings(s) {
-  for (const k in DEFAULTS) $(k).value = s && s[k] != null ? s[k] : DEFAULTS[k];
-  $("square").checked = !!(s && s.square);
-  $("separate_route").checked = !!(s && s.separate_route);
-  setRoute((s && s.route) || "raised");
-  syncOutputs();
+  s = s || {};
+  for (const k in DEFAULTS) $(k).value = s[k] != null ? s[k] : DEFAULTS[k];
+  for (const k of ["label", "base_color", "separate_route"]) $(k).checked = !!s[k];
+  $("label_text").value = s.label_text || "";
+  if (s.layer) $("layer").value = s.layer;
+  state.swatch = s.swatch || {};
+  setSeg("routeSeg", "route", s.route || "raised");
+  setSeg("shapeSeg", "shape", s.shape || "rectangle");
+  setSeg("colorSeg", "colors", s.colors || 1);
+  syncOutputs(); updateShapeUi(); renderSwatches();
 }
-function setRoute(v) {
-  state.route = v;
-  document.querySelectorAll("#routeSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
-}
-document.querySelectorAll("#routeSeg button").forEach(b => (b.onclick = () => { setRoute(b.dataset.v); saveSettings(); }));
-document.querySelectorAll("input[type=range], input[type=checkbox]").forEach(i => (i.oninput = () => { syncOutputs(); saveSettings(); }));
-$("reset").onclick = () => { applySettings(null); saveSettings(); };
-applySettings(recall("strava3d-settings"));
+document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); saveSettings(); }));
+$("label").onchange = () => { updateShapeUi(); saveSettings(); };
+$("label_text").oninput = saveSettings;
+$("base_color").onchange = $("separate_route").onchange = () => { renderSwatches(); saveSettings(); };
+$("reset").onclick = () => { const p = $("printer").value; applySettings({ printer: p }); applyPrinter(true); saveSettings(); };
 
 // ---------- Build ----------
 $("build").onclick = async () => {
   const fd = new FormData();
   for (const k in DEFAULTS) fd.append(k, $(k).value);
   fd.append("route", state.route);
-  if ($("square").checked) fd.append("square", "1");
-  if ($("separate_route").checked) fd.append("separate_route", "1");
+  fd.append("shape", state.shape);
+  fd.append("colors", state.colors);
+  fd.append("printer", $("printer").value);
+  fd.append("layer", $("layer").value);
+  for (const k of ["label", "base_color", "separate_route"]) if ($(k).checked) fd.append(k, "1");
+  if (state.shape === "circle" || state.shape === "hexagon") fd.delete("label");
+  fd.append("label_text", $("label_text").value);
   if (state.source === "gpx") fd.append("gpx", state.gpxFile);
   else fd.append("activity_id", state.activity.id);
 
@@ -459,29 +622,59 @@ $("build").onclick = async () => {
 };
 async function showResult(r) {
   const i = r.info, bust = `?t=${Date.now()}`;
+  state.last = r;
   $("rTitle").textContent = r.title;
   $("sSize").textContent = `${i.size_mm[0]} × ${i.size_mm[1]} mm`;
   $("sHeight").textContent = `${i.size_mm[2]} mm`;
   $("sElev").textContent = `${Math.round(i.elevation_range_m[0])}–${Math.round(i.elevation_range_m[1])} m`;
   $("sScale").textContent = i.scale;
+  $("sFil").textContent = `~${i.filament_g} g`;
+  const sizeStat = $("sSize").parentElement;
+  sizeStat.classList.toggle("good", i.fits); sizeStat.classList.toggle("bad", !i.fits);
+  sizeStat.title = i.fits ? `Fits the ${i.printer.name}` : `Too big for the ${i.printer.name}`;
+
+  const warns = $("warns");
+  warns.classList.toggle("hidden", !i.warnings.length);
+  warns.querySelector("ul").replaceChildren(...i.warnings.map(w => Object.assign(document.createElement("li"), { textContent: w })));
+
+  const colors = bandColors();
+  // Indented "Colour N: ..." lines belong to the step above them.
+  const steps = [];
+  for (const g of r.guide) {
+    const m = g.match(/^\s+Colour (\d+):/);
+    if (m && steps.length) {
+      let ul = steps[steps.length - 1].querySelector("ul");
+      if (!ul) { ul = document.createElement("ul"); ul.style.paddingLeft = "4px"; steps[steps.length - 1].append(ul); }
+      const li = document.createElement("li"); li.className = "sub";
+      const chip = document.createElement("span"); chip.className = "chip";
+      chip.style.background = colors[+m[1] - 1] || "transparent";
+      li.append(chip, document.createTextNode(g.trim())); ul.append(li);
+    } else steps.push(Object.assign(document.createElement("li"), { textContent: g }));
+  }
+  $("guide").replaceChildren(...steps);
+
+  $("dl3mf").href = r.files["3mf"] + "?download=1";
   $("dlTerrain").href = r.files.terrain + "?download=1";
   $("dlPreview").href = r.files.preview + "?download=1";
   $("dlRoute").classList.toggle("hidden", !r.files.route);
   if (r.files.route) $("dlRoute").href = r.files.route + "?download=1";
   $("inset").src = r.files.preview + bust; $("inset").style.display = "block";
+  $("vlabel").textContent = `On ${i.printer.name} bed (${i.printer.bed[0]} × ${i.printer.bed[1]} mm)`;
   $("result").classList.remove("hidden");
 
   const fetchBuf = (u) => fetch(u + bust).then(x => x.arrayBuffer());
   const [terrain, route] = await Promise.all([fetchBuf(r.files.terrain), r.files.route ? fetchBuf(r.files.route) : null]);
   viewer.load(terrain, route, i);
-  $("empty").classList.add("hidden"); $("vtools").classList.remove("hidden"); $("vhint").classList.remove("hidden");
+  for (const id of ["vtools", "vhint", "vlabel"]) $(id).classList.remove("hidden");
+  $("empty").classList.add("hidden");
 }
 
 // ---------- WebGL STL viewer ----------
+const hex2rgb = (h) => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16) / 255);
 const viewer = (() => {
   const canvas = $("gl");
   const gl = canvas.getContext("webgl", { antialias: true });
-  if (!gl) return { load() { toast("WebGL is not available; download the STL to view it."); } };
+  if (!gl) return { load() { toast("WebGL is not available; download the STL to view it."); }, recolor() {} };
 
   const vs = `attribute vec3 p; attribute vec3 n; attribute vec3 c; uniform mat4 mvp;
     varying vec3 vn; varying vec3 vc;
@@ -505,7 +698,7 @@ const viewer = (() => {
   const loc = { p: gl.getAttribLocation(prog, "p"), n: gl.getAttribLocation(prog, "n"), c: gl.getAttribLocation(prog, "c"), mvp: gl.getUniformLocation(prog, "mvp") };
   gl.enable(gl.DEPTH_TEST);
 
-  let meshes = [], center = [0, 0, 0], radius = 100;
+  let meshes = [], parts = null, center = [0, 0, 0], radius = 100;
   const cam = { theta: -Math.PI / 2, phi: 0.75, dist: 2.2 };
 
   // Rasterise the route outline so terrain triangles on the route can be tinted orange.
@@ -513,9 +706,10 @@ const viewer = (() => {
     if (!info || !["raised", "groove"].includes(info.route_style) || !info.route_mm || info.route_mm.length < 2) return null;
     const ppm = 4, [w, h] = info.size_mm;
     const c = document.createElement("canvas");
-    c.width = Math.ceil(w * ppm) + 1; c.height = Math.ceil(h * ppm) + 1;
+    c.width = Math.ceil(w * ppm) + 1; c.height = Math.ceil(h * ppm + info.label_mm * ppm) + 1;
     const ctx = c.getContext("2d");
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = (info.route_width_mm + 0.8) * ppm;  // include the ridge flanks ctx.lineCap = ctx.lineJoin = "round";
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = (info.route_width_mm + 0.8) * ppm;  // include the ridge flanks
+    ctx.lineCap = ctx.lineJoin = "round";
     ctx.beginPath();
     info.route_mm.forEach(([x, y], i) => (i ? ctx.lineTo(x * ppm, y * ppm) : ctx.moveTo(x * ppm, y * ppm)));
     ctx.stroke();
@@ -527,9 +721,10 @@ const viewer = (() => {
     };
   }
 
-  function parse(buf, colorFn) {
+  function parse(buf) {
     const dv = new DataView(buf), n = dv.getUint32(80, true);
-    const pos = new Float32Array(n * 9), nrm = new Float32Array(n * 9), col = new Float32Array(n * 9);
+    const pos = new Float32Array(n * 9), nrm = new Float32Array(n * 9);
+    const cen = new Float32Array(n * 4);  // centroid x, y, z and normal z per triangle
     for (let i = 0; i < n; i++) {
       const o = 84 + i * 50 + 12;
       for (let k = 0; k < 9; k++) pos[i * 9 + k] = dv.getFloat32(o + k * 4, true);
@@ -540,34 +735,75 @@ const viewer = (() => {
       const vx = pos[b + 6] - pos[b], vy = pos[b + 7] - pos[b + 1], vz = pos[b + 8] - pos[b + 2];
       let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
       const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
-      const cx = (pos[b] + pos[b + 3] + pos[b + 6]) / 3, cy = (pos[b + 1] + pos[b + 4] + pos[b + 7]) / 3, cz = (pos[b + 2] + pos[b + 5] + pos[b + 8]) / 3;
-      const rgb = colorFn(cx, cy, cz, nz);
-      for (let k = 0; k < 3; k++) {
-        nrm[b + k * 3] = nx; nrm[b + k * 3 + 1] = ny; nrm[b + k * 3 + 2] = nz;
-        col[b + k * 3] = rgb[0]; col[b + k * 3 + 1] = rgb[1]; col[b + k * 3 + 2] = rgb[2];
-      }
+      for (let k = 0; k < 3; k++) { nrm[b + k * 3] = nx; nrm[b + k * 3 + 1] = ny; nrm[b + k * 3 + 2] = nz; }
+      cen[i * 4] = (pos[b] + pos[b + 3] + pos[b + 6]) / 3;
+      cen[i * 4 + 1] = (pos[b + 1] + pos[b + 4] + pos[b + 7]) / 3;
+      cen[i * 4 + 2] = (pos[b + 2] + pos[b + 5] + pos[b + 8]) / 3;
+      cen[i * 4 + 3] = nz;
     }
-    return { pos, nrm, col, count: n * 3 };
+    return { pos, nrm, cen, n };
   }
-  function upload(m) {
-    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); return b; };
-    return { p: mk(m.pos), n: mk(m.nrm), c: mk(m.col), count: m.count, pos: m.pos };
+  function colorize(m, fn) {
+    const col = new Float32Array(m.n * 9);
+    for (let i = 0; i < m.n; i++) {
+      const rgb = fn(m.cen[i * 4], m.cen[i * 4 + 1], m.cen[i * 4 + 2], m.cen[i * 4 + 3]);
+      for (let k = 0; k < 3; k++) col.set(rgb, i * 9 + k * 3);
+    }
+    return col;
   }
-  function load(terrainBuf, routeBuf, info) {
-    meshes.forEach(m => [m.p, m.n, m.c].forEach(b => gl.deleteBuffer(b)));
-    const [w, h] = info.size_mm, zmax = info.size_mm[2], onRoute = routeMask(info), e = 1e-3;
-    const low = [0.47, 0.58, 0.40], high = [0.93, 0.90, 0.84], side = [0.62, 0.60, 0.56], orange = [0.99, 0.30, 0.01];
-    const terrain = parse(terrainBuf, (x, y, z, nz) => {
-      if (nz < -0.5 || x < e || y < e || x > w - e || y > h - e) return side;
+  function buffer(arr, old) {
+    const b = old || gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); return b;
+  }
+  function plateMesh(info) {
+    // Build plate outline: a thin slab under the model, centred like the slicer would.
+    const [bx, by] = info.printer.bed, [w, h] = info.size_mm;
+    const x0 = w / 2 - bx / 2, y0 = h / 2 - by / 2, z = -0.6, t = 0.6;
+    const quads = [
+      [[x0, y0, z + t], [x0 + bx, y0, z + t], [x0 + bx, y0 + by, z + t], [x0, y0 + by, z + t], [0, 0, 1]],
+      [[x0, y0, z], [x0 + bx, y0, z], [x0 + bx, y0, z + t], [x0, y0, z + t], [0, -1, 0]],
+      [[x0 + bx, y0, z], [x0 + bx, y0 + by, z], [x0 + bx, y0 + by, z + t], [x0 + bx, y0, z + t], [1, 0, 0]],
+    ];
+    const pos = [], nrm = [];
+    for (const [a, b, c, d, n] of quads) for (const v of [a, b, c, a, c, d]) { pos.push(...v); nrm.push(...n); }
+    const n = pos.length / 9, cen = new Float32Array(n * 4);
+    return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), cen, n, plate: true };
+  }
+  function recolor() {
+    if (!parts) return;
+    const info = parts.info, colors = bandColors().map(hex2rgb);
+    const bands = info.bands || [];
+    const banded = bands.length > 0 && colors.length === bands.length + 1;
+    const [w, h] = info.size_mm, zmax = info.size_mm[2], e = 1e-3;
+    const onRoute = banded ? null : parts.onRoute;
+    const low = [0.47, 0.58, 0.40], high = [0.93, 0.90, 0.84], side = [0.62, 0.60, 0.56];
+    const routeRgb = hex2rgb(state.swatch.route || ROUTE_DEFAULT), orange = hex2rgb(ROUTE_DEFAULT);
+    const bandOf = (z) => { let k = 0; while (k < bands.length && z > bands[k].z + 1e-6) k++; return colors[k]; };
+    const terrainColor = (x, y, z, nz) => {
+      if (banded) return bandOf(z);
+      if (nz < 0.01) return side;
       if (onRoute && onRoute(x, y)) return orange;
       const t = Math.min(1, Math.max(0, z / zmax)) ** 1.2;
       return low.map((v, k) => v + (high[k] - v) * t);
+    };
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const plateRgb = dark ? [0.17, 0.17, 0.16] : [0.80, 0.79, 0.76];
+    parts.list.forEach((m, idx) => {
+      const fn = m.plate ? () => plateRgb : m.route ? () => routeRgb : terrainColor;
+      meshes[idx].c = buffer(colorize(m, fn), meshes[idx].c);
     });
-    meshes = [upload(terrain)];
-    if (routeBuf) meshes.push(upload(parse(routeBuf, () => orange)));
+    redraw();
+  }
+  function load(terrainBuf, routeBuf, info) {
+    meshes.forEach(m => [m.p, m.n, m.c].forEach(b => gl.deleteBuffer(b)));
+    const list = [parse(terrainBuf)];
+    if (routeBuf) list.push(Object.assign(parse(routeBuf), { route: true }));
+    list.push(plateMesh(info));
+    parts = { list, info, onRoute: routeMask(info) };
+    meshes = list.map(m => ({ p: buffer(m.pos), n: buffer(m.nrm), c: null, count: m.n * 3 }));
+    const [w, h] = info.size_mm, zmax = info.size_mm[2];
     center = [w / 2, h / 2, zmax / 3];
     radius = Math.hypot(w, h, zmax) / 2;
-    resetView(); draw();
+    recolor(); resetView();
   }
 
   // ---- matrices (column-major) ----
@@ -606,6 +842,7 @@ const viewer = (() => {
     const mvp = mul(perspective(0.6, W / H, radius * 0.05, radius * 20), lookAt(eye, center, up));
     gl.uniformMatrix4fv(loc.mvp, false, new Float32Array(mvp));
     for (const m of meshes) {
+      if (!m.c) continue;
       for (const [attr, buf] of [[loc.p, m.p], [loc.n, m.n], [loc.c, m.c]]) {
         gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(attr); gl.vertexAttribPointer(attr, 3, gl.FLOAT, false, 0, 0);
       }
@@ -630,14 +867,17 @@ const viewer = (() => {
     e.preventDefault(); cam.dist = Math.min(8, Math.max(0.6, cam.dist * Math.exp(e.deltaY * 0.001))); redraw();
   }, { passive: false });
   new ResizeObserver(redraw).observe(canvas);
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", recolor);
   $("viewReset").onclick = resetView; $("viewTop").onclick = topView;
-  return { load };
+  return { load, recolor };
 })();
 
 if (new URLSearchParams(location.search).get("error")) {
   toast("Strava authorization was cancelled or failed."); history.replaceState(null, "", "/");
 }
+const saved = recall("strava3d-settings-v2");
+applySettings(saved);
+loadPrinters(saved).catch(e => toast(e.message));
 loadStatus().catch(e => toast(e.message));
 </script>
 </body>

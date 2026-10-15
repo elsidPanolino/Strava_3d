@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "strava3d"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn Strava activities into 3D-printable terrain models (STL)"
 readme = "README.md"
 requires-python = ">=3.9"

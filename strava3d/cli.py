@@ -7,7 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .geo import read_gpx, slug
-from .model import ROUTE_STYLES, ModelParams, build_and_export
+from .guide import print_guide
+from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export, default_label
+from .printers import DEFAULT_PRINTER, PRINTERS
 from .strava import DEFAULT_PORT, Credentials, StravaClient
 
 
@@ -36,32 +38,46 @@ def cmd_activities(args) -> None:
         )
 
 
-def _params(args) -> ModelParams:
+def _params(args, label_lines=None) -> ModelParams:
+    shape = "square" if args.square and args.shape == "rectangle" else args.shape
     return ModelParams(
         size_mm=args.size,
         cell_mm=args.resolution,
         z_exaggeration=args.exaggeration,
         base_mm=args.base,
         padding=args.padding,
-        square=args.square,
+        shape=shape,
         route_style=args.route,
         route_width_mm=args.route_width,
         route_height_mm=args.route_height,
         separate_route=args.separate_route,
+        printer=args.printer,
+        layer_mm=args.layer,
+        label=args.label,
+        label_lines=[args.label_text, label_lines[1]] if args.label_text else (label_lines or []),
+        colors=args.colors,
+        base_color=args.base_color,
     )
 
 
-def _build_and_save(points, name: str, args) -> None:
+def _build_and_save(points, name: str, args, label_lines) -> None:
     print(f"Building model from {len(points)} GPS points (downloading elevation tiles)...")
-    result = build_and_export(points, name, _params(args), Path(args.out))
+    params = _params(args, label_lines)
+    result = build_and_export(points, name, params, Path(args.out))
     info = result["info"]
     w, h, t = info["size_mm"]
+    print(f"Printer: {info['printer']['name']}, {info['layer_mm']} mm layers")
     print(f"Model size: {w} x {h} mm, max height {t} mm  (horizontal scale {info['scale']})")
     lo, hi = info["elevation_range_m"]
     print(f"Elevation: {lo} m - {hi} m, vertical exaggeration x{args.exaggeration}")
-    print(f"Triangles: {info['triangles']:,}")
+    print(f"Triangles: {info['triangles']:,}   Filament: ~{info['filament_g']} g PLA (15% infill)")
+    for w_ in info["warnings"]:
+        print(f"  ! {w_}")
     for path in result["files"].values():
         print(f"  wrote {path}")
+    print("\nHow to print:")
+    for step in print_guide(info):
+        print(f"  - {step}")
 
 
 def cmd_build(args) -> None:
@@ -69,9 +85,13 @@ def cmd_build(args) -> None:
     activity = client.activity(args.activity_id)
     points = client.activity_latlng(args.activity_id)
     date = activity.get("start_date_local", "")[:10]
-    name = args.name or f"{date}-{slug(activity.get('name', str(args.activity_id)))}"
-    print(f"Activity: {activity.get('name')} ({date})")
-    _build_and_save(points, name, args)
+    title = activity.get("name", str(args.activity_id))
+    name = args.name or f"{date}-{slug(title)}"
+    print(f"Activity: {title} ({date})")
+    label = default_label(
+        title, points, activity.get("distance", 0) / 1000, activity.get("total_elevation_gain"), date
+    )
+    _build_and_save(points, name, args, label)
 
 
 def cmd_latest(args) -> None:
@@ -86,7 +106,7 @@ def cmd_latest(args) -> None:
 def cmd_gpx(args) -> None:
     points = read_gpx(args.file)
     name = args.name or Path(args.file).stem
-    _build_and_save(points, name, args)
+    _build_and_save(points, name, args, default_label(Path(args.file).stem, points))
 
 
 def cmd_ui(args) -> None:
@@ -95,22 +115,39 @@ def cmd_ui(args) -> None:
     serve(port=args.port, out_dir=args.out, open_browser=not args.no_browser)
 
 
+def cmd_printers(args) -> None:
+    for p in PRINTERS.values():
+        default = "  (default)" if p.key == DEFAULT_PRINTER else ""
+        ams = f", {p.ams}" if p.ams else ""
+        print(f"{p.key:9} {p.name:28} {p.bed_x:.0f} x {p.bed_y:.0f} x {p.bed_z:.0f} mm{ams}{default}")
+
+
 def _add_model_args(p: argparse.ArgumentParser) -> None:
+    g = p.add_argument_group("printer")
+    g.add_argument("--printer", choices=list(PRINTERS), default=DEFAULT_PRINTER,
+                   help="printer profile (default: Bambu Lab A1 mini); see `strava3d printers`")
+    g.add_argument("--layer", type=float, help="layer height in mm (default: printer profile, 0.2)")
     g = p.add_argument_group("model options")
-    g.add_argument("--size", type=float, default=150, help="longest side in mm (default 150)")
+    g.add_argument("--size", type=float, help="longest side in mm (default: largest that fits the printer, max 200)")
+    g.add_argument("--shape", choices=SHAPES, default="rectangle", help="outline of the model")
     g.add_argument("--resolution", type=float, default=0.5, help="mesh cell size in mm (default 0.5)")
     g.add_argument("--exaggeration", type=float, default=1.5, help="vertical exaggeration (default 1.5)")
     g.add_argument("--base", type=float, default=3, help="base thickness in mm (default 3)")
     g.add_argument("--padding", type=float, default=0.1, help="terrain margin around route (fraction, default 0.1)")
-    g.add_argument("--square", action="store_true", help="make the model square")
+    g.add_argument("--square", action="store_true", help="same as --shape square")
     g.add_argument("--route", choices=ROUTE_STYLES, default="raised", help="how to show the route")
     g.add_argument("--route-width", type=float, default=1.6, help="route width in mm (default 1.6)")
     g.add_argument("--route-height", type=float, default=1.0, help="route height/depth in mm (default 1.0)")
     g.add_argument(
         "--separate-route",
         action="store_true",
-        help="export the route as a separate STL for multi-colour printing",
+        help="route as its own part (filament 2 in the 3MF) for AMS / multi-colour printing",
     )
+    g.add_argument("--label", action="store_true", help="add a name plate with the activity name and stats")
+    g.add_argument("--label-text", help="custom name plate title (default: activity name)")
+    g.add_argument("--colors", type=int, choices=[1, 2, 3, 4], default=1,
+                   help="colour bands by height, using filament changes (default 1)")
+    g.add_argument("--base-color", action="store_true", help="give the base its own colour (one more filament change)")
     g.add_argument("--name", help="output file name prefix")
     g.add_argument("-o", "--out", default="output", help="output directory (default ./output)")
 
@@ -144,6 +181,9 @@ def main(argv=None) -> None:
     p.add_argument("file")
     _add_model_args(p)
     p.set_defaults(func=cmd_gpx)
+
+    p = sub.add_parser("printers", help="list printer profiles")
+    p.set_defaults(func=cmd_printers)
 
     p = sub.add_parser("ui", help="open the web interface in your browser")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)

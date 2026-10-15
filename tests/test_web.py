@@ -107,3 +107,35 @@ def test_build_validation(app):
 def test_activities_requires_setup(app):
     r = app.test_client().get("/api/activities")
     assert r.status_code == 502 and "credentials" in r.get_json()["error"]
+
+
+def test_printers_endpoint(app):
+    r = app.test_client().get("/api/printers").get_json()
+    assert r["default"] == "a1mini"
+    mini = next(p for p in r["printers"] if p["key"] == "a1mini")
+    assert mini["bed"] == [180, 180, 180] and mini["max_size"] == 170
+
+
+def test_build_with_new_options(app):
+    c = app.test_client()
+    data = {
+        "printer": "a1mini", "layer": "0.16", "shape": "rectangle", "colors": "3", "base_color": "1",
+        "label": "1", "label_text": "Sunday Climb", "resolution": "1",
+        "gpx": (io.BytesIO(GPX.encode()), "ride.gpx"),
+    }
+    r = c.post("/api/build", data=data, content_type="multipart/form-data")
+    body = r.get_json()
+    assert r.status_code == 200, body
+    info = body["info"]
+    assert info["layer_mm"] == 0.16 and info["fits"]
+    assert len(info["bands"]) == 3 and info["label_mm"] > 0
+    assert body["files"]["3mf"].endswith(".3mf")
+    assert any("0.16mm Optimal @BBL A1M" in g for g in body["guide"])
+    assert c.get(body["files"]["3mf"]).status_code == 200
+
+
+def test_build_rejects_bad_options(app):
+    c = app.test_client()
+    for bad in ({"printer": "nope"}, {"shape": "star"}, {"colors": "7"}, {"layer": "2"}):
+        r = c.post("/api/build", data={"activity_id": "1", **bad})
+        assert r.status_code == 400, bad

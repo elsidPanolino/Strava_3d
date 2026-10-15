@@ -56,14 +56,40 @@ class Mesh:
             fh.write(record.tobytes())
 
 
+def close_surface(top: np.ndarray, top_faces: np.ndarray, perim: np.ndarray, z_bottom=0.0) -> Mesh:
+    """Turn an upward-facing surface into a closed solid.
+
+    `perim` lists the surface's boundary vertex indices counter-clockwise seen from above;
+    the outline must be star-shaped around its centroid (true for all our shapes).
+    """
+    n_top, n_p = len(top), len(perim)
+    bottom = top[perim].copy()
+    bottom[:, 2] = z_bottom
+    bot_idx = n_top + np.arange(n_p)
+    center_idx = n_top + n_p
+    center = np.array([[*bottom[:, :2].mean(axis=0), z_bottom]])
+
+    k = np.arange(n_p)
+    k1 = (k + 1) % n_p
+    walls = np.concatenate(
+        [
+            np.column_stack([perim[k], bot_idx[k], bot_idx[k1]]),
+            np.column_stack([perim[k], bot_idx[k1], perim[k1]]),
+        ]
+    )
+    floor = np.column_stack([np.full(n_p, center_idx), bot_idx[k1], bot_idx[k]])
+    return Mesh(
+        np.vstack([top, bottom, center]),
+        np.vstack([top_faces, walls, floor]).astype(np.int64),
+    )
+
+
 def heightmap_solid(z: np.ndarray, dx: float, dy: float, z_bottom: float = 0.0) -> Mesh:
     """Closed solid whose top surface is the heightmap `z` (ny x nx, row 0 = south/y=0)."""
     ny, nx = z.shape
     if nx < 2 or ny < 2:
         raise ValueError("heightmap must be at least 2x2")
-    xs = np.arange(nx) * dx
-    ys = np.arange(ny) * dy
-    gx, gy = np.meshgrid(xs, ys)
+    gx, gy = np.meshgrid(np.arange(nx) * dx, np.arange(ny) * dy)
     top = np.column_stack([gx.ravel(), gy.ravel(), z.ravel()])
 
     def idx(j, i):
@@ -86,28 +112,67 @@ def heightmap_solid(z: np.ndarray, dx: float, dy: float, z_bottom: float = 0.0) 
             idx(np.arange(ny - 1, 0, -1), 0),  # west, north -> south
         ]
     )
-    n_top = len(top)
-    n_p = len(perim)
-    bottom = top[perim].copy()
-    bottom[:, 2] = z_bottom
-    bot_idx = n_top + np.arange(n_p)
-    center_idx = n_top + n_p
-    center = np.array([[xs[-1] / 2, ys[-1] / 2, z_bottom]])
+    return close_surface(top, top_faces, perim, z_bottom)
 
-    k = np.arange(n_p)
-    k1 = (k + 1) % n_p
-    walls = np.concatenate(
-        [
-            np.column_stack([perim[k], bot_idx[k], bot_idx[k1]]),
-            np.column_stack([perim[k], bot_idx[k1], perim[k1]]),
-        ]
-    )
-    floor = np.column_stack([np.full(n_p, center_idx), bot_idx[k1], bot_idx[k]])
 
-    return Mesh(
-        np.vstack([top, bottom, center]),
-        np.vstack([top_faces, walls, floor]).astype(np.int64),
-    )
+def radial_outline(shape: str, radius: float, n: int):
+    """Outline angles and radii (circumradius `radius`) for 'circle' or 'hexagon'.
+
+    Hexagons have flat top/bottom edges; `n` is rounded up to a multiple of 6 so the
+    corners are exact vertices.
+    """
+    if shape == "circle":
+        theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        return theta, np.full(n, radius)
+    if shape == "hexagon":
+        n = int(np.ceil(n / 6) * 6)
+        theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        inradius = radius * np.cos(np.pi / 6)
+        phi = np.mod(theta - np.pi / 6, np.pi / 3)
+        phi = np.where(phi > np.pi / 6, phi - np.pi / 3, phi)
+        return theta, inradius / np.cos(phi)
+    raise ValueError(f"unknown radial shape {shape!r}")
+
+
+def radial_solid(shape: str, radius: float, cell: float, height_fn, z_bottom=0.0) -> Mesh:
+    """Closed circle/hexagon solid centred at (radius, radius); top z = height_fn(x, y).
+
+    Vertices sit on concentric rings; inner rings use fewer vertices (halving the count
+    each time the radius halves) so the mesh density stays roughly uniform.
+    """
+    rings = max(2, int(np.ceil(radius / cell)))
+    levels = min(4, int(np.log2(rings)))
+    unit = 6 * 2**levels
+    n_outer = max(unit, int(np.ceil(2 * np.pi * radius / cell / unit)) * unit)
+    counts = [n_outer >> min(levels, int(np.log2(rings / k))) for k in range(1, rings + 1)]
+
+    xs, ys, starts = [np.array([radius])], [np.array([radius])], []
+    offset = 1
+    for k, n in enumerate(counts, start=1):
+        theta, r_out = radial_outline(shape, radius * k / rings, n)
+        xs.append(radius + r_out * np.cos(theta))
+        ys.append(radius + r_out * np.sin(theta))
+        starts.append(offset)
+        offset += n
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    top = np.column_stack([x, y, height_fn(x, y)])
+
+    n0 = counts[0]
+    j = np.arange(n0)
+    faces = [np.column_stack([np.zeros(n0, int), starts[0] + j, starts[0] + (j + 1) % n0])]
+    for k in range(rings - 1):
+        n_in, n_out = counts[k], counts[k + 1]
+        si, so = starts[k], starts[k + 1]
+        j = np.arange(n_in)
+        a, d = si + j, si + (j + 1) % n_in
+        if n_out == n_in:
+            b, c = so + j, so + (j + 1) % n_out
+            faces += [np.column_stack([a, b, c]), np.column_stack([a, c, d])]
+        else:  # n_out == 2 * n_in
+            o0, o1, o2 = so + 2 * j, so + 2 * j + 1, so + (2 * j + 2) % n_out
+            faces += [np.column_stack([a, o0, o1]), np.column_stack([a, o1, o2]), np.column_stack([a, o2, d])]
+    perim = starts[-1] + np.arange(counts[-1])
+    return close_surface(top, np.vstack(faces), perim, z_bottom)
 
 
 def hexahedron(bottom: np.ndarray, top: np.ndarray) -> Mesh:

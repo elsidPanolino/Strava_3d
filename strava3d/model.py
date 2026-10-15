@@ -9,24 +9,39 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .elevation import TileFetcher, elevation_grid
-from .geo import BBox, project
-from .mesh import Mesh, heightmap_solid, hexahedron
+from .geo import BBox, project, track_length_km
+from .label import text_mask
+from .mesh import Mesh, heightmap_solid, hexahedron, radial_solid
+from .printers import DEFAULT_PRINTER, PRINTERS, layer_number, snap
+from .threemf import Part, write_3mf
 
 ROUTE_STYLES = ("raised", "groove", "none")
+SHAPES = ("rectangle", "square", "circle", "hexagon")
+# Colour-band split points as fractions of the terrain relief, by number of colours.
+BAND_FRACTIONS = {2: [0.55], 3: [0.35, 0.7], 4: [0.25, 0.5, 0.75]}
 
 
 @dataclass
 class ModelParams:
-    size_mm: float = 150.0  # length of the longest side of the print
+    size_mm: float | None = None  # longest side of the print; None = fit the printer
     cell_mm: float = 0.5  # horizontal resolution of the terrain mesh
     z_exaggeration: float = 1.5  # vertical exaggeration relative to true scale
     base_mm: float = 3.0  # thickness of the solid base under the lowest point
     padding: float = 0.1  # extra terrain around the route, as fraction of its size
-    square: bool = False  # make the tile square instead of fitting the route's shape
+    shape: str = "rectangle"  # rectangle | square | circle | hexagon
+    square: bool = False  # legacy alias for shape="square"
     route_style: str = "raised"  # raised | groove | none
     route_width_mm: float = 1.6
     route_height_mm: float = 1.0  # height (raised) or depth (groove)
     separate_route: bool = False  # also output the route as its own body (multi-colour)
+    printer: str = DEFAULT_PRINTER
+    layer_mm: float | None = None  # layer height; None = printer default
+    label: bool = False  # name plate along the bottom edge (rectangle/square only)
+    label_lines: list[str] = field(default_factory=list)  # [title, subtitle]
+    label_mm: float = 16.0  # depth of the name plate strip
+    label_height_mm: float = 0.8  # how far the text is raised
+    colors: int = 1  # colour bands by height (1 = single colour)
+    base_color: bool = False  # give the base / plinth its own colour (adds a band)
 
 
 @dataclass
@@ -38,7 +53,14 @@ class TerrainModel:
     route_xy: np.ndarray  # route polyline in mm
     dx: float
     dy: float
+    shape_mask: np.ndarray | None = None  # 1 inside the printed outline (radial shapes)
     info: dict = field(default_factory=dict)
+
+
+def _hex_norm(x, y):
+    """Distance to a flat-top hexagon's edges, in units of its inradius."""
+    c, s_ = np.cos(np.pi / 6), np.sin(np.pi / 6)
+    return np.maximum.reduce([np.abs(x * c + y * s_), np.abs(y), np.abs(-x * c + y * s_)])
 
 
 def build_model(
@@ -49,17 +71,59 @@ def build_model(
 ) -> TerrainModel:
     """Build the model. `elevation(bbox, nx, ny)` can be injected (defaults to terrain tiles)."""
     p = params or ModelParams()
+    shape = "square" if p.square and p.shape == "rectangle" else p.shape
     if p.route_style not in ROUTE_STYLES:
         raise ValueError(f"route_style must be one of {ROUTE_STYLES}")
-    if p.route_style == "groove" and p.route_height_mm >= p.base_mm:
-        raise ValueError("groove depth must be smaller than the base thickness")
+    if shape not in SHAPES:
+        raise ValueError(f"shape must be one of {SHAPES}")
+    if p.printer not in PRINTERS:
+        raise ValueError(f"unknown printer {p.printer!r}")
+    printer = PRINTERS[p.printer]
+    layer = p.layer_mm or printer.layer
+    warnings: list[str] = []
     pts = np.asarray(points, dtype=float)
     if len(pts) < 2:
         raise ValueError("need at least two GPS points")
 
-    bbox = BBox.around(pts, padding=p.padding, square=p.square)
+    # Snap vertical dimensions to whole layers so the slicer reproduces them exactly.
+    base_mm = snap(p.base_mm, layer)
+    route_h = snap(p.route_height_mm, layer)
+    text_h = snap(p.label_height_mm, layer)
+    route_w = p.route_width_mm
+    if route_w < 3 * printer.nozzle and p.route_style != "none":
+        route_w = round(3 * printer.nozzle, 2)
+        warnings.append(
+            f"Route width raised to {route_w} mm (3 nozzle widths) so it prints cleanly "
+            f"with a {printer.nozzle} mm nozzle."
+        )
+    if p.route_style == "groove" and route_h >= base_mm:
+        raise ValueError("groove depth must be smaller than the base thickness")
+
+    size = p.size_mm or min(printer.max_size, 200.0)
+    radial = shape in ("circle", "hexagon")
+    label = p.label and not radial and any(p.label_lines)
+    if p.label and radial:
+        warnings.append("The name plate is only available for rectangle and square shapes.")
+    label_mm = p.label_mm if label else 0.0
+
+    # --- Area to model ---------------------------------------------------------------
+    if radial:
+        tmp = BBox.around(pts, padding=0)
+        lat0, lon0 = tmp.center
+        x_m, y_m = project(pts[:, 0], pts[:, 1], BBox.centered(lat0, lon0, 0, 0))
+        if shape == "circle":
+            reach = float(np.hypot(x_m, y_m).max())
+            radius_m = reach * (1 + p.padding) + 200
+        else:
+            reach = float(_hex_norm(x_m, y_m).max())
+            radius_m = (reach * (1 + p.padding) + 200) / np.cos(np.pi / 6)
+        bbox = BBox.centered(lat0, lon0, radius_m, radius_m)
+    else:
+        bbox = BBox.around(pts, padding=p.padding, square=shape == "square")
     width_m, height_m = bbox.size_m()
-    scale = p.size_mm / max(width_m, height_m)  # mm per metre
+
+    # Scale so the whole footprint (terrain + name plate) has `size` as its longest side.
+    scale = min(size / width_m, (size - label_mm) / height_m)  # mm per metre
     width_mm, height_mm = width_m * scale, height_m * scale
     nx = max(2, int(round(width_mm / p.cell_mm)) + 1)
     ny = max(2, int(round(height_mm / p.cell_mm)) + 1)
@@ -69,34 +133,137 @@ def build_model(
         elev = elevation_grid(bbox, nx, ny, fetcher=fetcher)
     else:
         elev = np.asarray(elevation(bbox, nx, ny), dtype=float)
-    z_base = elev.min()
-    z = p.base_mm + (elev - z_base) * scale * p.z_exaggeration
-
     x_m, y_m = project(pts[:, 0], pts[:, 1], bbox)
     route_xy = np.column_stack([x_m * scale, y_m * scale])
-    mask = route_mask(route_xy, nx, ny, dx, dy, p.route_width_mm)
 
+    shape_mask = None
+    if radial:
+        # Only terrain inside the outline counts for the height range.
+        gx, gy = np.meshgrid(np.arange(nx) * dx - width_mm / 2, np.arange(ny) * dy - height_mm / 2)
+        r_mm = width_mm / 2
+        if shape == "circle":
+            shape_mask = np.hypot(gx, gy) <= r_mm + dx
+        else:
+            shape_mask = _hex_norm(gx, gy) <= r_mm * np.cos(np.pi / 6) + dx
+    inside = elev[shape_mask] if shape_mask is not None else elev
+    z_low = inside.min()
+    z = base_mm + (elev - z_low) * scale * p.z_exaggeration
+    z = np.maximum(z, base_mm)
+
+    mask = route_mask(route_xy, nx, ny, dx, dy, route_w)
     terrain_z = z.copy()
     route_mesh = None
     if p.separate_route and p.route_style != "none":
         # Recess the terrain slightly so the separate route body seats into it.
-        seat = min(0.4, p.base_mm / 2)
+        seat = min(snap(0.4, layer), base_mm / 2)
         terrain_z -= seat * mask
-        route_mesh = route_ribbon(route_xy, z, dx, dy, p.route_width_mm, p.route_height_mm, seat)
+        route_mesh = route_ribbon(route_xy, z, dx, dy, route_w, route_h, seat)
     elif p.route_style == "raised":
-        terrain_z += p.route_height_mm * mask
+        terrain_z += route_h * mask
     elif p.route_style == "groove":
-        terrain_z -= p.route_height_mm * mask
+        terrain_z -= route_h * mask
 
-    terrain = heightmap_solid(terrain_z, dx, dy)
+    # --- Name plate --------------------------------------------------------------------
+    if label:
+        rows = max(2, int(round(label_mm / dy)))
+        text = text_mask(p.label_lines, nx, rows)
+        strip = base_mm + text_h * text
+        terrain_z = np.vstack([strip, terrain_z])
+        mask = np.vstack([np.zeros((rows, nx)), mask])
+        shift = rows * dy
+        route_xy = route_xy + [0, shift]
+        if route_mesh is not None:
+            route_mesh.vertices[:, 1] += shift
+        height_mm += shift
+
+    # --- Mesh --------------------------------------------------------------------------
+    if radial:
+        terrain = radial_solid(
+            shape, width_mm / 2, p.cell_mm, lambda x, y: sample_grid(terrain_z, x, y, dx, dy)
+        )
+        footprint = (width_mm, width_mm if shape == "circle" else width_mm * np.cos(np.pi / 6))
+    else:
+        terrain = heightmap_solid(terrain_z, dx, dy)
+        footprint = (width_mm, height_mm)
+
+    top_z = float(terrain_z[shape_mask].max() if shape_mask is not None else terrain_z.max())
+    if route_mesh is not None:
+        top_z = max(top_z, float(route_mesh.vertices[:, 2].max()))
+
+    # --- Printer fit -------------------------------------------------------------------
+    fits = _fits(footprint, printer)
+    if not fits:
+        warnings.append(
+            f"{footprint[0]:.0f} x {footprint[1]:.0f} mm does not fit the {printer.name} "
+            f"bed ({printer.bed_x:.0f} x {printer.bed_y:.0f} mm). Reduce the size to "
+            f"{printer.max_size:.0f} mm or less."
+        )
+    if top_z > printer.bed_z:
+        warnings.append(f"Model is {top_z:.0f} mm tall; the {printer.name} prints up to {printer.bed_z:.0f} mm.")
+    relief = top_z - base_mm
+    if relief < 3:
+        warnings.append("Very little relief. Try a higher vertical exaggeration (3-5x for flat areas).")
+
+    # --- Colour bands (filament changes by height) -----------------------------------------
+    terrain_top = float(z[shape_mask].max() if shape_mask is not None else z.max())
+    bands = colour_bands(p.colors, p.base_color, base_mm, terrain_top, layer, printer)
+
+    area = _surface_area(terrain) + (_surface_area(route_mesh) if route_mesh is not None else 0)
+    volume = terrain.volume() + (route_mesh.volume() if route_mesh is not None else 0)
     info = {
         "bbox": bbox,
         "grid": (nx, ny),
-        "size_mm": (round(width_mm, 1), round(height_mm, 1), round(float(terrain_z.max()), 1)),
-        "elevation_range_m": (round(float(elev.min()), 1), round(float(elev.max()), 1)),
+        "shape": shape,
+        "size_mm": (round(float(footprint[0]), 1), round(float(footprint[1]), 1), round(top_z, 1)),
+        "elevation_range_m": (round(float(inside.min()), 1), round(float(inside.max()), 1)),
         "scale": f"1:{round(1000 / scale):,}",
+        "printer": printer.to_dict(),
+        "layer_mm": layer,
+        "fits": fits and top_z <= printer.bed_z,
+        "base_mm": base_mm,
+        "route_height_mm": route_h,
+        "route_width_mm": route_w,
+        "label_mm": round(shift, 2) if label else 0,
+        "bands": bands,
+        "filament_g": _filament_grams(volume, area),
+        "warnings": warnings,
     }
-    return TerrainModel(terrain, route_mesh, terrain_z, mask, route_xy, dx, dy, info)
+    return TerrainModel(terrain, route_mesh, terrain_z, mask, route_xy, dx, dy, shape_mask, info)
+
+
+def _fits(footprint, printer) -> bool:
+    w, h = footprint
+    m = 2 * printer.margin
+    return (w <= printer.bed_x - m and h <= printer.bed_y - m) or (
+        w <= printer.bed_y - m and h <= printer.bed_x - m
+    )
+
+
+def _surface_area(mesh: Mesh) -> float:
+    v = mesh.vertices[mesh.faces]
+    return float(np.linalg.norm(np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]), axis=1).sum() / 2)
+
+
+def _filament_grams(volume_mm3: float, area_mm2: float, infill=0.15, shell_mm=0.9, density=1.24) -> int:
+    """Rough PLA estimate: solid shell (walls, top, bottom) plus sparse infill."""
+    shell = min(area_mm2 * shell_mm, volume_mm3)
+    return int(round((shell + (volume_mm3 - shell) * infill) * density / 1000))
+
+
+def colour_bands(colors: int, base_color: bool, base_mm: float, top_mm: float, layer: float, printer) -> list[dict]:
+    """Filament-change points: the first layer printed in each new colour."""
+    fractions = BAND_FRACTIONS.get(colors, [])
+    cuts = [base_mm + f * (top_mm - base_mm) for f in fractions]
+    if base_color:
+        cuts = [base_mm] + cuts
+    out = []
+    for z in cuts:
+        # Snap to a layer boundary; the change happens before the next layer starts.
+        z = printer.first_layer + max(0, round((z - printer.first_layer) / layer)) * layer
+        if out and z <= out[-1]["z"]:
+            continue
+        out.append({"z": round(z, 3), "layer": layer_number(z + layer, printer, layer), "top_z": round(z + layer, 3)})
+    return out
 
 
 def route_mask(route_xy: np.ndarray, nx: int, ny: int, dx: float, dy: float, width_mm: float):
@@ -170,7 +337,7 @@ def route_ribbon(
     return Mesh.merge(blocks)
 
 
-def render_preview(model: TerrainModel, path, max_px: int = 1000) -> None:
+def render_preview(model: TerrainModel, path, max_px: int = 1000, band_colors=None) -> None:
     """Hillshade PNG of the top surface with the route drawn in Strava orange."""
     z = model.heightmap
     gy, gx = np.gradient(z, model.dy, model.dx)
@@ -186,29 +353,52 @@ def render_preview(model: TerrainModel, path, max_px: int = 1000) -> None:
     orange = np.array([0.99, 0.32, 0.0])
     m = model.route_mask[..., None]
     rgb = rgb * (1 - m) + orange * m
-    img = Image.fromarray((np.clip(rgb, 0, 1)[::-1] * 255).astype(np.uint8))
+    rgb = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+    if model.shape_mask is not None:
+        alpha = (model.shape_mask * 255).astype(np.uint8)
+        img = Image.fromarray(np.dstack([rgb, alpha])[::-1], "RGBA")
+    else:
+        img = Image.fromarray(rgb[::-1])
     factor = max_px / max(img.size)
     img = img.resize((round(img.width * factor), round(img.height * factor)), Image.LANCZOS)
     img.save(path)
 
 
+def default_label(name: str, points, distance_km: float | None = None, gain_m: float | None = None,
+                  date: str = "") -> list[str]:
+    """[title, 'distance · elevation gain · date'] for the name plate."""
+    km = distance_km if distance_km is not None else track_length_km(points)
+    stats = [f"{km:.1f} km"]
+    if gain_m:
+        stats.append(f"{gain_m:,.0f} m elevation gain")
+    if date:
+        stats.append(date)
+    return [name, "  ·  ".join(stats)]
+
+
 def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetcher=None) -> dict:
-    """Build a model and write `<name>-terrain.stl`, `-route.stl` (optional) and `-preview.png`."""
+    """Build a model and write STL(s), a Bambu Studio-ready 3MF and a preview PNG."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     model = build_model(points, params, fetcher=fetcher)
+    printer = PRINTERS[params.printer]
+
     files = {"terrain": out_dir / f"{name}-terrain.stl"}
     model.terrain.write_stl(files["terrain"], name=name)
+    parts = [Part("terrain", model.terrain, 1)]
     if model.route is not None:
         files["route"] = out_dir / f"{name}-route.stl"
         model.route.write_stl(files["route"], name=f"{name}-route")
+        parts.append(Part("route", model.route, 2))
+    files["3mf"] = out_dir / f"{name}.3mf"
+    write_3mf(files["3mf"], parts, name=name, bed_center=(printer.bed_x / 2, printer.bed_y / 2))
     files["preview"] = out_dir / f"{name}-preview.png"
     render_preview(model, files["preview"])
+
     info = {k: v for k, v in model.info.items() if k != "bbox"}
     info["triangles"] = len(model.terrain.faces)
     # Route outline (mm, decimated) so viewers can colour the route on the terrain.
     route = model.route_xy[:: max(1, len(model.route_xy) // 3000)]
     info["route_mm"] = np.round(route, 2).tolist()
-    info["route_width_mm"] = params.route_width_mm
     info["route_style"] = "separate" if model.route is not None else params.route_style
     return {"files": files, "info": info}

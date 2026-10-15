@@ -77,6 +77,12 @@ class BBox:
         dlon = math.degrees(half_w / (EARTH_RADIUS_M * math.cos(math.radians(lat0))))
         return cls(lat0 - dlat, lon0 - dlon, lat0 + dlat, lon0 + dlon)
 
+    @classmethod
+    def centered(cls, lat0: float, lon0: float, half_w_m: float, half_h_m: float) -> "BBox":
+        dlat = math.degrees(half_h_m / EARTH_RADIUS_M)
+        dlon = math.degrees(half_w_m / (EARTH_RADIUS_M * math.cos(math.radians(lat0))))
+        return cls(lat0 - dlat, lon0 - dlon, lat0 + dlat, lon0 + dlon)
+
     @property
     def center(self) -> tuple[float, float]:
         return (self.south + self.north) / 2, (self.west + self.east) / 2
@@ -100,3 +106,13 @@ def project(lat, lon, bbox: BBox):
 def slug(text: str) -> str:
     """File-name-safe version of an activity name."""
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "activity"
+
+
+def track_length_km(points) -> float:
+    """Great-circle length of a track in km."""
+    pts = np.radians(np.asarray(points, dtype=float))
+    if len(pts) < 2:
+        return 0.0
+    lat1, lon1, lat2, lon2 = pts[:-1, 0], pts[:-1, 1], pts[1:, 0], pts[1:, 1]
+    a = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
+    return float(2 * EARTH_RADIUS_M * np.arcsin(np.sqrt(a)).sum() / 1000)
