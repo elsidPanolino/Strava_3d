@@ -5,17 +5,20 @@ from __future__ import annotations
 import json
 import tempfile
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request, send_from_directory
 
+from .frame import FrameParams, build_frame, frame_guide
 from .geo import read_gpx_track, slug
 from .guide import print_guide
 from .model import ROUTE_STYLES, SEA_STYLES, SHAPES, ModelParams, build_and_export
-from .stats import DEFAULT_LABEL_FIELDS, RIDE_TYPES, gpx_stats, label_lines, strava_stats
 from .printers import DEFAULT_PRINTER, PRINTERS
+from .stats import DEFAULT_LABEL_FIELDS, RIDE_TYPES, gpx_stats, label_lines, strava_stats
 from .strava import Credentials, StravaClient, StravaError, default_token_path
+from .threemf import Part, write_3mf
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -232,7 +235,68 @@ def create_app(
         result = build_and_export(points, name, params, out_dir, fetcher=fetcher)
         files = {k: f"/files/{p.name}" for k, p in result["files"].items()}
         info = result["info"]
-        return jsonify(title=title, files=files, info=info, guide=print_guide(info), stats=stats)
+        # Remember the build so the Frame page can size a frame for it.
+        stats_lines = label_lines(title, stats, ("distance", "elevation", "time", "date"))[1:]
+        meta = {
+            "name": name, "title": title, "stats": stats, "stats_line": "  ·  ".join(stats_lines),
+            "size_mm": info["size_mm"], "printer": params.printer, "layer_mm": info["layer_mm"],
+            "files": files, "created": time.time(), "inlay": bool(info.get("inlay")),
+        }
+        (out_dir / f"{name}-model.json").write_text(json.dumps(meta))
+        return jsonify(title=title, name=name, files=files, info=info, guide=print_guide(info), stats=stats)
+
+    @app.get("/frame")
+    def frame_page():
+        return send_from_directory(STATIC_DIR, "frame.html")
+
+    @app.get("/api/models")
+    def models():
+        out = []
+        for path in sorted(out_dir.glob("*-model.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                out.append(json.loads(path.read_text()))
+            except (OSError, json.JSONDecodeError):
+                continue
+        return jsonify(out)
+
+    @app.post("/api/frame")
+    def frame():
+        data = request.get_json(force=True)
+        meta = None
+        if data.get("model"):
+            path = out_dir / f"{slug(str(data['model']))}-model.json"
+            if not path.exists():
+                raise ValueError("That model wasn't found. Build it again on the main page.")
+            meta = json.loads(path.read_text())
+            tile_w, tile_d, tile_h = meta["size_mm"]
+        else:
+            tile_w, tile_d, tile_h = (float(data[k]) for k in ("tile_w", "tile_d", "tile_h"))
+        limits = {"wall_mm": (1.2, 15), "clearance_mm": (0, 2), "headroom_mm": (0, 30), "floor_mm": (0.4, 6),
+                  "band_mm": (6, 40), "text_mm": (0.2, 2)}
+        kw = {}
+        for key, (lo, hi) in limits.items():
+            if data.get(key) not in (None, ""):
+                v = float(data[key])
+                if not lo <= v <= hi:
+                    raise ValueError(f"{key} must be between {lo} and {hi}")
+                kw[key] = v
+        if not (10 <= tile_w <= 400 and 10 <= tile_d <= 400 and 1 <= tile_h <= 300):
+            raise ValueError("Tile size must be 10-400 mm wide and 1-300 mm tall.")
+        printer = data.get("printer") or (meta or {}).get("printer") or DEFAULT_PRINTER
+        if printer not in PRINTERS:
+            raise ValueError(f"unknown printer {printer!r}")
+        fp = FrameParams(tile_w=tile_w, tile_d=tile_d, tile_h=tile_h, floor=bool(data.get("floor", True)),
+                         title=str(data.get("title", ""))[:60], stats=str(data.get("stats", ""))[:90],
+                         printer=printer, layer_mm=float((meta or {}).get("layer_mm") or PRINTERS[printer].layer),
+                         **kw)
+        mesh, info = build_frame(fp)
+        base = f"{meta['name']}-frame" if meta else f"frame-{tile_w:.0f}x{tile_d:.0f}"
+        stl, tmf = out_dir / f"{base}.stl", out_dir / f"{base}.3mf"
+        mesh.write_stl(stl, name=base)
+        pr = PRINTERS[printer]
+        write_3mf(tmf, [Part("frame", mesh, 1)], name=base, bed_center=(pr.bed_x / 2, pr.bed_y / 2))
+        return jsonify(info=info, guide=frame_guide(info), model=meta,
+                       files={"stl": f"/files/{stl.name}", "3mf": f"/files/{tmf.name}"})
 
     @app.get("/api/athlete-stats")
     def athlete_stats():

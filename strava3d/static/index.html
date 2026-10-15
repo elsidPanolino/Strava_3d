@@ -51,6 +51,9 @@ header {
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
 .brand svg { width: 28px; height: 28px; }
 .who { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.topnav { display: flex; gap: 4px; margin-right: auto; margin-left: 24px; }
+.topnav a { color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 8px; font-weight: 500; }
+.topnav a.on { background: var(--accent-soft); color: var(--accent); }
 .who img { width: 28px; height: 28px; border-radius: 50%; }
 main {
   display: grid; grid-template-columns: 380px 1fr; gap: 20px;
@@ -200,6 +203,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
     <svg viewBox="0 0 32 32"><path d="M2 26 L11 10 L17 19 L21 13 L30 26 Z" fill="#fc4c02"/><path d="M6 24 L12 17 L16 21 L22 16" stroke="#fff" stroke-width="1.6" fill="none"/></svg>
     Strava 3D
   </div>
+  <nav class="topnav"><a href="/" class="on">Terrain</a><a href="/frame">Frame</a></nav>
   <div class="who" id="who"></div>
 </header>
 
@@ -470,6 +474,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <a class="btn" id="dlRoute3mf">Route .3mf</a>
         <a class="btn" id="dlRoute">Route STL</a>
         <a class="btn" id="dlPreview">Preview PNG</a>
+        <a class="btn" id="makeFrame">Make a frame →</a>
       </div>
       <div class="card hidden" id="rideCard">
         <h2 id="rideTitle">Activity stats</h2>
@@ -933,6 +938,7 @@ async function showResult(r) {
   $("dl3mf").href = r.files["3mf"] + "?download=1";
   $("dlTerrain").href = r.files.terrain + "?download=1";
   $("dlPreview").href = r.files.preview + "?download=1";
+  $("makeFrame").href = `/frame?model=${encodeURIComponent(r.name)}`;
   $("dlRoute").classList.toggle("hidden", !r.files.route);
   if (r.files.route) $("dlRoute").href = r.files.route + "?download=1";
   $("dlRoute3mf").classList.toggle("hidden", !r.files.route_3mf);

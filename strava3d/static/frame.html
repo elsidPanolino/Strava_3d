@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strava 3D Frame</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M2 26 L11 10 L17 19 L21 13 L30 26 Z' fill='%23fc4c02'/></svg>">
+<style>
+:root {
+  --bg: #f5f4f1; --panel: #ffffff; --panel-2: #f0eeea; --text: #1d1d1b; --muted: #6b6a66; --border: #e2dfd9;
+  --accent: #fc4c02; --accent-ink: #ffffff; --accent-soft: #fff1ea; --danger: #c62828;
+  --warn-bg: #fff6dc; --warn-ink: #6b4e00; --viewer-bg: #e9e7e2;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04); color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #141413; --panel: #1d1d1b; --panel-2: #262624; --text: #efeee9; --muted: #9c9a93; --border: #34332f;
+          --accent-soft: #3a2116; --warn-bg: #3a3014; --warn-ink: #f3d98a; --viewer-bg: #222220; --shadow: none; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 24px;
+         border-bottom: 1px solid var(--border); background: var(--panel); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; }
+.brand svg { width: 28px; height: 28px; }
+nav { display: flex; gap: 4px; }
+nav a { color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 8px; font-weight: 500; }
+nav a.on { background: var(--accent-soft); color: var(--accent); }
+main { display: grid; grid-template-columns: 380px 1fr; gap: 20px; padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 12px 16px; } }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.step { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; }
+button, .btn, select { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+  color: var(--text); padding: 8px 14px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+select { width: 100%; padding: 9px 10px; display: block; }
+button:hover, .btn:hover { background: var(--panel-2); }
+button:disabled { opacity: .5; cursor: default; }
+.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.primary:hover { background: #e34402; }
+.wide { width: 100%; padding: 12px; font-size: 15px; }
+.field { margin-bottom: 14px; }
+.field > label, .field > .lbl { display: flex; justify-content: space-between; font-weight: 500; margin-bottom: 4px; }
+.field label output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+input[type=text], input[type=number] { width: 100%; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); }
+.check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
+.check input { accent-color: var(--accent); margin-top: 3px; }
+.check small { display: block; color: var(--muted); }
+.model-sum { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.swatches { display: flex; gap: 14px; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); }
+.swatch input { width: 38px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
+.viewer { position: relative; background: var(--viewer-bg); border-radius: 12px; overflow: hidden; height: min(66vh, 640px);
+          min-height: 360px; border: 1px solid var(--border); }
+.viewer canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+.overlay { position: absolute; inset: 0; display: none; place-items: center; background: color-mix(in srgb, var(--viewer-bg) 75%, transparent); }
+.overlay.on { display: grid; }
+.spinner { width: 40px; height: 40px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vtools { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+.vtools button { padding: 6px 10px; font-size: 13px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+@media (max-width: 700px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.stat .k { color: var(--muted); font-size: 12px; }
+.stat .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat.good .v::after { content: " ✓"; color: #2e7d32; }
+.stat.bad .v { color: var(--danger); }
+.downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.downloads h3 { margin: 0 auto 0 0; font-size: 16px; }
+.warns { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+.warns ul { margin: 0; padding-left: 18px; }
+.guide ol { margin: 0; padding-left: 20px; }
+.guide li { margin-bottom: 6px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--danger); color: #fff;
+  padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">
+    <svg viewBox="0 0 32 32"><path d="M2 26 L11 10 L17 19 L21 13 L30 26 Z" fill="#fc4c02"/><path d="M6 24 L12 17 L16 21 L22 16" stroke="#fff" stroke-width="1.6" fill="none"/></svg>
+    Strava 3D
+  </a>
+  <nav><a href="/">Terrain</a><a href="/frame" class="on">Frame</a></nav>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2><span class="step">1</span> Terrain tile</h2>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model"></select>
+        <div class="model-sum" id="modelSum"></div>
+      </div>
+      <div id="customSize" class="hidden">
+        <div class="row3">
+          <div class="field"><label for="tile_w">Width</label><input type="number" id="tile_w" value="150" min="10" max="400" step="0.1"></div>
+          <div class="field"><label for="tile_d">Depth</label><input type="number" id="tile_d" value="150" min="10" max="400" step="0.1"></div>
+          <div class="field"><label for="tile_h">Height</label><input type="number" id="tile_h" value="20" min="1" max="300" step="0.1"></div>
+        </div>
+        <div class="hint">Tile size in mm. Height is the highest point of the terrain, measured from its bottom.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">2</span> Frame</h2>
+      <div class="field">
+        <label for="wall_mm">Wall thickness <output data-for="wall_mm" data-unit=" mm"></output></label>
+        <input type="range" id="wall_mm" min="2" max="8" step="0.4" value="4">
+      </div>
+      <div class="field">
+        <label for="headroom_mm">Height above highest peak <output data-for="headroom_mm" data-unit=" mm"></output></label>
+        <input type="range" id="headroom_mm" min="0" max="10" step="0.2" value="2">
+        <div class="hint">The walls rise this far above the tallest point of the terrain, so every peak is covered.</div>
+      </div>
+      <div class="field">
+        <label for="clearance_mm">Fit gap per side <output data-for="clearance_mm" data-unit=" mm"></output></label>
+        <input type="range" id="clearance_mm" min="0.1" max="1" step="0.05" value="0.4">
+      </div>
+      <label class="check"><input type="checkbox" id="floor" checked> <span>Floor<small>The tile drops onto a floor. Untick for an open frame that slips over the tile.</small></span></label>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">3</span> Text (optional)</h2>
+      <label class="check"><input type="checkbox" id="useText" checked> <span>Title and stats on the front<small>Raised text on a wider front band</small></span></label>
+      <div id="textOpts">
+        <div class="field"><label for="title">Title</label><input type="text" id="title" maxlength="60" placeholder="e.g. Morning Ride"></div>
+        <div class="field"><label for="stats">Stats</label><input type="text" id="stats" maxlength="90" placeholder="e.g. 65.8 km · 582 m elevation · 3h 25m"></div>
+        <div class="field">
+          <label for="band_mm">Front band depth <output data-for="band_mm" data-unit=" mm"></output></label>
+          <input type="range" id="band_mm" min="10" max="30" step="1" value="16">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">4</span> Printer &amp; colours</h2>
+      <div class="field"><label for="printer">Printer</label><select id="printer"></select></div>
+      <div class="swatches">
+        <label class="swatch"><input type="color" id="colFrame" value="#3a3a38">Frame</label>
+        <label class="swatch"><input type="color" id="colTile" value="#c4bfa6">Terrain</label>
+        <label class="swatch"><input type="color" id="colRoute" value="#fc4c02">Route</label>
+      </div>
+      <div class="hint">Preview colours only. The frame prints from one spool.</div>
+    </div>
+
+    <button class="primary wide" id="build">Build frame</button>
+  </section>
+
+  <section>
+    <div class="viewer">
+      <canvas id="gl"></canvas>
+      <div class="empty" id="empty"><p>Pick a terrain model and click <b>Build frame</b>.</p></div>
+      <div class="overlay" id="busy"><div style="text-align:center"><div class="spinner"></div><div>Building the frame…</div></div></div>
+      <div class="vtools hidden" id="vtools"><button id="viewTop">Top</button><button id="viewReset">3D view</button></div>
+    </div>
+    <div id="result" class="hidden">
+      <div class="stats">
+        <div class="stat"><div class="k">Outer size</div><div class="v" id="sOuter"></div></div>
+        <div class="stat"><div class="k">Height</div><div class="v" id="sHeight"></div></div>
+        <div class="stat"><div class="k">Above highest peak</div><div class="v" id="sHead"></div></div>
+        <div class="stat"><div class="k">Filament</div><div class="v" id="sFil"></div></div>
+      </div>
+      <div class="warns hidden" id="warns"><ul></ul></div>
+      <div class="card downloads">
+        <h3 id="rTitle">Frame</h3>
+        <a class="btn primary" id="dl3mf">Download frame .3mf</a>
+        <a class="btn" id="dlStl">Frame STL</a>
+      </div>
+      <div class="card guide"><h2>How to print</h2><ol id="guide"></ol></div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script src="/static/stlview.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const viewer = createViewer($("gl"));
+let models = [], printers = [], last = null;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(() => (t.style.display = "none"), 6000);
+}
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+function syncOutputs() {
+  document.querySelectorAll("output[data-for]").forEach(o => { o.textContent = (+$(o.dataset.for).value).toFixed(o.dataset.for === "band_mm" ? 0 : 1) + o.dataset.unit; });
+}
+document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = syncOutputs));
+const current = () => models.find(m => m.name === $("model").value);
+
+function onModel() {
+  const m = current();
+  $("customSize").classList.toggle("hidden", !!m);
+  if (m) {
+    const [w, d, h] = m.size_mm;
+    $("modelSum").textContent = `Tile ${w} × ${d} mm, highest point ${h} mm` + (m.inlay ? " · with route inlay" : "");
+    $("title").value = m.title || "";
+    $("stats").value = m.stats_line || "";
+    if (m.printer) $("printer").value = m.printer;
+  } else $("modelSum").textContent = "";
+}
+$("model").onchange = onModel;
+$("useText").onchange = () => $("textOpts").classList.toggle("hidden", !$("useText").checked);
+
+async function init() {
+  const [ms, pr] = await Promise.all([api("/api/models"), api("/api/printers")]);
+  models = ms; printers = pr.printers;
+  for (const p of printers) $("printer").append(new Option(p.name, p.key));
+  $("printer").value = pr.default;
+  for (const m of models) $("model").append(new Option(`${m.title} (${m.size_mm[0]} × ${m.size_mm[1]} mm)`, m.name));
+  $("model").append(new Option("Custom size…", ""));
+  const want = new URLSearchParams(location.search).get("model");
+  if (want && models.some(m => m.name === want)) $("model").value = want;
+  onModel(); syncOutputs();
+}
+
+$("build").onclick = async () => {
+  const m = current();
+  const body = {
+    model: m ? m.name : "",
+    tile_w: $("tile_w").value, tile_d: $("tile_d").value, tile_h: $("tile_h").value,
+    wall_mm: $("wall_mm").value, headroom_mm: $("headroom_mm").value, clearance_mm: $("clearance_mm").value,
+    floor: $("floor").checked, printer: $("printer").value, band_mm: $("band_mm").value,
+    title: $("useText").checked ? $("title").value : "", stats: $("useText").checked ? $("stats").value : "",
+  };
+  $("build").disabled = true; $("busy").classList.add("on");
+  try {
+    const r = await api("/api/frame", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    await showResult(r, m);
+  } catch (e) { toast(e.message); }
+  $("busy").classList.remove("on"); $("build").disabled = false;
+};
+
+async function showResult(r, m) {
+  const i = r.info, bust = `?t=${Date.now()}`;
+  last = r;
+  $("sOuter").textContent = `${i.outer_mm[0]} × ${i.outer_mm[1]} mm`;
+  $("sHeight").textContent = `${i.outer_mm[2]} mm`;
+  $("sHead").textContent = `${i.headroom_mm} mm`;
+  $("sFil").textContent = `~${i.filament_g} g`;
+  const st = $("sOuter").parentElement; st.classList.toggle("good", i.fits); st.classList.toggle("bad", !i.fits);
+  $("warns").classList.toggle("hidden", !i.warnings.length);
+  $("warns").querySelector("ul").replaceChildren(...i.warnings.map(w => Object.assign(document.createElement("li"), { textContent: w })));
+  $("guide").replaceChildren(...r.guide.map(g => Object.assign(document.createElement("li"), { textContent: g })));
+  $("rTitle").textContent = m ? `Frame for ${m.title}` : "Frame";
+  $("dl3mf").href = r.files["3mf"] + "?download=1";
+  $("dlStl").href = r.files.stl + "?download=1";
+  $("result").classList.remove("hidden");
+
+  const get = (u) => fetch(u + bust).then(x => { if (!x.ok) throw new Error("missing"); return x.arrayBuffer(); });
+  const parts = [{ buf: await get(r.files.stl), color: $("colFrame").value }];
+  if (m) {  // show the terrain (and route inlay) sitting in the frame
+    try {
+      parts.push({ buf: await get(m.files.terrain), color: $("colTile").value, offset: i.tile_offset_mm });
+      if (m.files.route) parts.push({ buf: await get(m.files.route), color: $("colRoute").value, offset: i.tile_offset_mm });
+    } catch (e) { /* the model's files were removed; show the frame alone */ }
+  }
+  viewer.show(parts, { bed: i.printer.bed });
+  $("empty").classList.add("hidden"); $("vtools").classList.remove("hidden");
+}
+[["colFrame", 0], ["colTile", 1], ["colRoute", 2]].forEach(([id, idx]) => ($(id).oninput = () => viewer.setColor(idx, $(id).value)));
+$("viewTop").onclick = () => viewer.top();
+$("viewReset").onclick = () => viewer.reset();
+init().catch(e => toast(e.message));
+</script>
+</body>
+</html>
