@@ -175,6 +175,83 @@ def radial_solid(shape: str, radius: float, cell: float, height_fn, z_bottom=0.0
     return close_surface(top, np.vstack(faces), perim, z_bottom)
 
 
+def masked_heightmap_solid(z: np.ndarray, f: np.ndarray, dx: float, dy: float, z_bottom: float = 0.0) -> Mesh:
+    """Closed solid over the region where f > 0, with top surface z (both ny x nx, row 0 = south).
+
+    The region's edge is traced with marching squares: wherever f changes sign along a cell
+    side, the boundary point is interpolated linearly, so curved outlines (e.g. a slot along
+    a route) stay smooth and accurate at sub-cell precision. Vertical walls run down to
+    z_bottom along every boundary, including the grid's outer edge.
+    """
+    ny, nx = z.shape
+    f = np.where(f == 0, -1e-9, f)
+    inside = f > 0
+    xs, ys = np.arange(nx) * dx, np.arange(ny) * dy
+    gx, gy = np.meshgrid(xs, ys)
+    verts = [np.column_stack([gx.ravel(), gy.ravel(), z.ravel()])]
+    extra: list[tuple[float, float, float]] = []
+    edge_idx: dict = {}
+    n_corner = nx * ny
+
+    def corner(j, i):
+        return j * nx + i
+
+    def crossing(key, ja, ia, jb, ib):
+        if key not in edge_idx:
+            fa, fb = f[ja, ia], f[jb, ib]
+            t = fa / (fa - fb)
+            extra.append((xs[ia] + t * (xs[ib] - xs[ia]), ys[ja] + t * (ys[jb] - ys[ja]),
+                          z[ja, ia] + t * (z[jb, ib] - z[ja, ia])))
+            edge_idx[key] = n_corner + len(extra) - 1
+        return edge_idx[key]
+
+    c00, c10 = inside[:-1, :-1], inside[:-1, 1:]
+    c11, c01 = inside[1:, 1:], inside[1:, :-1]
+    n_in = c00.astype(int) + c10 + c11 + c01
+    faces = []
+    # Cells entirely inside: two triangles each (vectorised).
+    jj, ii = np.nonzero(n_in == 4)
+    a, b = corner(jj, ii), corner(jj, ii + 1)
+    c, d = corner(jj + 1, ii + 1), corner(jj + 1, ii)
+    faces += [np.column_stack([a, b, c]), np.column_stack([a, c, d])]
+    # Boundary cells: walk the cell's sides counter-clockwise, collecting inside corners and
+    # sign crossings into one convex polygon, then fan-triangulate it.
+    tri = []
+    for j, i in zip(*np.nonzero((n_in > 0) & (n_in < 4))):
+        cs = [(j, i), (j, i + 1), (j + 1, i + 1), (j + 1, i)]
+        keys = [("h", j, i), ("v", j, i + 1), ("h", j + 1, i), ("v", j, i)]
+        poly = []
+        for k in range(4):
+            (ja, ia), (jb, ib) = cs[k], cs[(k + 1) % 4]
+            if inside[ja, ia]:
+                poly.append(corner(ja, ia))
+            if inside[ja, ia] != inside[jb, ib]:
+                poly.append(crossing(keys[k], ja, ia, jb, ib))
+        for k in range(1, len(poly) - 1):
+            tri.append((poly[0], poly[k], poly[k + 1]))
+    if tri:
+        faces.append(np.array(tri, dtype=np.int64))
+    top_faces = np.vstack(faces).astype(np.int64)
+    if extra:
+        verts.append(np.array(extra))
+    top = np.vstack(verts)
+    n = len(top)
+    bottom = top.copy()
+    bottom[:, 2] = z_bottom
+
+    # Boundary = directed top edges whose reverse is not also a top edge; each gets a wall.
+    e = np.concatenate([top_faces[:, [0, 1]], top_faces[:, [1, 2]], top_faces[:, [2, 0]]])
+    code = e[:, 0] * n + e[:, 1]
+    rev = e[:, 1] * n + e[:, 0]
+    edge = e[~np.isin(rev, code)]
+    walls = np.concatenate([
+        np.column_stack([edge[:, 0], edge[:, 0] + n, edge[:, 1] + n]),
+        np.column_stack([edge[:, 0], edge[:, 1] + n, edge[:, 1]]),
+    ])
+    bottom_faces = top_faces[:, ::-1] + n
+    return Mesh(np.vstack([top, bottom]), np.vstack([top_faces, bottom_faces, walls]))
+
+
 def hexahedron(bottom: np.ndarray, top: np.ndarray) -> Mesh:
     """Closed 8-vertex solid; `bottom`/`top` are 4x3 corner arrays, CCW seen from above."""
     verts = np.vstack([bottom, top])

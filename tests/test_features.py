@@ -125,6 +125,44 @@ def test_3mf_export(tmp_path):
     assert any("slot 2" in g for g in guide)
 
 
+def test_route_inlay_slot_and_piece_fit(tmp_path, monkeypatch):
+    import strava3d.model as mm
+
+    # An open route (no loop) so the slot doesn't split the terrain.
+    route = [(46.5 + 0.009 * np.sin(t), 8.0 + 0.012 * np.cos(t)) for t in np.linspace(0, 3.5, 120)]
+    m = build_model(route, ModelParams(cell_mm=0.5, size_mm=80, route_style="inlay", route_width_mm=2.0,
+                                       inlay_clearance_mm=0.15), elevation=hill)
+    terrain, piece, info = m.terrain, m.route, m.info
+    assert info["inlay"] and terrain.is_watertight() and piece.is_watertight()
+    assert piece.vertices[:, 2].min() == 0  # flat bottom: prints standing up, no supports
+    assert not any("pieces" in w for w in info["warnings"])
+    # The piece is narrower than the slot by 2 x clearance: check across one segment midpoint.
+    from strava3d.model import route_distance
+    d_terrain = route_distance(m.route_xy, m.heightmap.shape, m.dx, m.dy, 5)
+    assert d_terrain.min() < 0.5  # grid covers the route
+    # Footprint areas (top-down): slot width 2.3 mm vs piece 2.0 mm along the same path.
+    length = np.linalg.norm(np.diff(m.route_xy, axis=0), axis=1).sum()
+    v = piece.vertices[piece.faces]
+    nz = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])[:, 2]
+    top_area = nz[nz > 0].sum() / 2
+    assert top_area == pytest.approx(length * 2.0 + np.pi * 1.0, rel=0.05)
+    # Dense GPS logging (a point every ~5 m, as Strava records each second) must keep the whole route.
+    dense = [(46.5 + 0.009 * np.sin(t), 8.0 + 0.012 * np.cos(t)) for t in np.linspace(0, 3.5, 6000)]
+    md = build_model(dense, ModelParams(cell_mm=0.5, size_mm=80, route_style="inlay"), elevation=hill)
+    v = md.route.vertices[md.route.faces]
+    nz = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])[:, 2]
+    dense_len = np.linalg.norm(np.diff(md.route_xy, axis=0), axis=1).sum()
+    assert nz[nz > 0].sum() / 2 == pytest.approx(dense_len * 2.0 + np.pi * 1.0, rel=0.05)
+    # A closed loop route splits the terrain: warn.
+    loop = build_model(LOOP, ModelParams(cell_mm=1.0, size_mm=80, route_style="inlay"), elevation=hill)
+    assert any("pieces" in w for w in loop.info["warnings"])
+    # Separate 3MF for the route piece.
+    monkeypatch.setattr(mm, "elevation_grid", lambda bbox, nx, ny, fetcher=None: hill(bbox, nx, ny))
+    res = build_and_export(route, "r", ModelParams(cell_mm=1.0, size_mm=80, route_style="inlay"), tmp_path)
+    assert res["files"]["route_3mf"].exists() and res["info"]["route_style"] == "inlay"
+    assert any("Push the route into the slot" in g for g in print_guide(res["info"]))
+
+
 def test_route_filament_comes_after_colour_bands(tmp_path, monkeypatch):
     import strava3d.model as mm
 

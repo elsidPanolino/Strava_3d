@@ -11,11 +11,11 @@ from PIL import Image, ImageDraw
 from .elevation import TileFetcher, elevation_grid
 from .geo import BBox, project
 from .label import text_mask
-from .mesh import Mesh, heightmap_solid, hexahedron, radial_solid
+from .mesh import Mesh, heightmap_solid, hexahedron, masked_heightmap_solid, radial_solid
 from .printers import DEFAULT_PRINTER, PRINTERS, layer_number, snap
 from .threemf import Part, write_3mf
 
-ROUTE_STYLES = ("raised", "groove", "none")
+ROUTE_STYLES = ("raised", "groove", "inlay", "none")
 SHAPES = ("rectangle", "square", "circle", "hexagon")
 SEA_STYLES = ("flat", "waves", "depth")
 # Colour-band split points as fractions of the terrain relief, by number of colours.
@@ -53,6 +53,7 @@ class ModelParams:
     label_lines: list[str] = field(default_factory=list)  # [title, subtitle]
     label_mm: float = 16.0  # depth of the name plate strip
     label_height_mm: float = 0.8  # how far the text is raised
+    inlay_clearance_mm: float = 0.15  # inlay: gap per side between the route piece and its slot
     colors: int = 1  # colour bands by height (1 = single colour)
     base_color: bool = False  # give the base / plinth its own colour (adds a band)
     single_color: bool = False  # one filament only: overrides every colour option above
@@ -121,6 +122,14 @@ def build_model(
 
     size = p.size_mm or min(printer.max_size, 200.0)
     radial = shape in ("circle", "hexagon")
+    inlay = p.route_style == "inlay"
+    if inlay and radial:
+        warnings.append("The route inlay is only available for rectangle and square shapes; using a raised route.")
+        p, inlay = replace(p, route_style="raised"), False
+    if inlay and route_w < 2.0:
+        route_w = 2.0
+        warnings.append("Route width raised to 2.0 mm for the inlay, so the route piece is sturdy enough to "
+                        "print standing up and push in.")
     label = p.label and not radial and any(p.label_lines)
     if p.label and radial:
         warnings.append("The name plate is only available for rectangle and square shapes.")
@@ -206,7 +215,7 @@ def build_model(
     mask = route_mask(route_xy, nx, ny, dx, dy, route_w)
     terrain_z = z.copy()
     route_mesh = None
-    if p.separate_route and p.route_style != "none":
+    if p.separate_route and p.route_style not in ("none", "inlay"):
         # Recess the terrain slightly so the separate route body seats into it.
         seat = min(snap(0.4, layer), base_mm / 2)
         terrain_z -= seat * mask
@@ -236,6 +245,22 @@ def build_model(
             shape, width_mm / 2, p.cell_mm, lambda x, y: sample_grid(terrain_z, x, y, dx, dy)
         )
         footprint = (width_mm, width_mm if shape == "circle" else width_mm * np.cos(np.pi / 6))
+    elif inlay:
+        # Slot through the whole terrain along the route, and a separate route piece with a
+        # flat bottom whose top follows the terrain plus the route height. Both outlines come
+        # from one distance field, so the fit gap is exact.
+        clearance = p.inlay_clearance_mm
+        half = route_w / 2
+        dist = route_distance(route_xy, terrain_z.shape, dx, dy, half + clearance + 2 * max(dx, dy))
+        terrain = masked_heightmap_solid(terrain_z, dist - (half + clearance), dx, dy)
+        route_mesh = masked_heightmap_solid(terrain_z + route_h, half - dist, dx, dy)
+        footprint = (width_mm, height_mm)
+        pieces = _count_regions(dist - (half + clearance) > 0)
+        if pieces > 1:
+            warnings.append(
+                f"The route encloses part of the terrain, so the inlay slot cuts it into {pieces} pieces. "
+                "Glue the loose pieces back in place, or use a raised or grooved route instead."
+            )
     else:
         terrain = heightmap_solid(terrain_z, dx, dy)
         footprint = (width_mm, height_mm)
@@ -297,6 +322,8 @@ def build_model(
         "sea_style": p.sea_style if water else "flat",
         "sea_depth_mm": sea_depth,
         "shallow_color": shallow,
+        "inlay": inlay,
+        "inlay_clearance_mm": p.inlay_clearance_mm if inlay else 0,
         "sea_fraction": round(sea_fraction, 3),
         "filament_g": _filament_grams(volume, area),
         "warnings": warnings,
@@ -334,6 +361,46 @@ def _blur(a: np.ndarray, sigma: float) -> np.ndarray:
     pad = np.pad(a, r, mode="edge")
     rows = sum(w[k] * pad[k:k + a.shape[0], :] for k in range(len(w)))
     return sum(w[k] * rows[:, k:k + a.shape[1]] for k in range(len(w)))
+
+
+def route_distance(route_xy: np.ndarray, shape, dx: float, dy: float, reach: float) -> np.ndarray:
+    """Distance (mm) from every grid vertex to the route polyline; 1e6 beyond `reach`."""
+    ny, nx = shape
+    dist = np.full(shape, 1e6)
+    # Even 0.25 mm spacing along the route: dense GPS logs (a point per second is ~0.02 mm
+    # at map scale) would otherwise mean tens of thousands of tiny segments.
+    pts = resample_polyline(route_xy, 0.25)
+    if len(pts) == 1:
+        pts = np.vstack([pts, pts])
+    for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:]):
+        i0 = max(0, int((min(x0, x1) - reach) / dx)); i1 = min(nx, int((max(x0, x1) + reach) / dx) + 2)
+        j0 = max(0, int((min(y0, y1) - reach) / dy)); j1 = min(ny, int((max(y0, y1) + reach) / dy) + 2)
+        if i0 >= i1 or j0 >= j1:
+            continue
+        gx = np.arange(i0, i1)[None, :] * dx
+        gy = np.arange(j0, j1)[:, None] * dy
+        vx, vy = x1 - x0, y1 - y0
+        L2 = vx * vx + vy * vy
+        t = np.clip(((gx - x0) * vx + (gy - y0) * vy) / L2, 0, 1) if L2 > 0 else 0.0
+        d = np.hypot(gx - (x0 + t * vx), gy - (y0 + t * vy))
+        np.minimum(dist[j0:j1, i0:i1], d, out=dist[j0:j1, i0:i1])
+    return dist
+
+
+def _count_regions(inside: np.ndarray, min_cells: int = 20) -> int:
+    """Number of 4-connected regions of `inside` with at least `min_cells` vertices."""
+    big = inside.size + 1
+    lab = np.where(inside, np.arange(inside.size).reshape(inside.shape), big)
+    while True:  # propagate the smallest label until stable
+        new = lab.copy()
+        new[1:] = np.minimum(new[1:], lab[:-1]); new[:-1] = np.minimum(new[:-1], lab[1:])
+        new[:, 1:] = np.minimum(new[:, 1:], lab[:, :-1]); new[:, :-1] = np.minimum(new[:, :-1], lab[:, 1:])
+        new = np.where(inside, new, big)
+        if np.array_equal(new, lab):
+            break
+        lab = new
+    _, counts = np.unique(lab[inside], return_counts=True)
+    return int((counts >= min_cells).sum())
 
 
 def _median5(a: np.ndarray) -> np.ndarray:
@@ -548,15 +615,22 @@ def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetc
     files = {"terrain": out_dir / f"{name}-terrain.stl"}
     model.terrain.write_stl(files["terrain"], name=name)
     parts = [Part("terrain", model.terrain, 1)]
+    bed_center = (printer.bed_x / 2, printer.bed_y / 2)
+    inlay = model.info.get("inlay")
     if model.route is not None:
         files["route"] = out_dir / f"{name}-route.stl"
         model.route.write_stl(files["route"], name=f"{name}-route")
-        # After the colour bands' filaments, so the route never shares a band colour.
-        route_filament = len(model.info["bands"]) + 2
-        model.info["route_filament"] = route_filament
-        parts.append(Part("route", model.route, route_filament))
+        if inlay:
+            # A separate print: its own 3MF, standing on its flat bottom.
+            files["route_3mf"] = out_dir / f"{name}-route.3mf"
+            write_3mf(files["route_3mf"], [Part("route", model.route, 1)], name=f"{name}-route", bed_center=bed_center)
+        else:
+            # After the colour bands' filaments, so the route never shares a band colour.
+            route_filament = len(model.info["bands"]) + 2
+            model.info["route_filament"] = route_filament
+            parts.append(Part("route", model.route, route_filament))
     files["3mf"] = out_dir / f"{name}.3mf"
-    write_3mf(files["3mf"], parts, name=name, bed_center=(printer.bed_x / 2, printer.bed_y / 2))
+    write_3mf(files["3mf"], parts, name=name, bed_center=bed_center)
     files["preview"] = out_dir / f"{name}-preview.png"
     render_preview(model, files["preview"])
 
@@ -565,5 +639,5 @@ def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetc
     # Route outline (mm, decimated) so viewers can colour the route on the terrain.
     route = model.route_xy[:: max(1, len(model.route_xy) // 3000)]
     info["route_mm"] = np.round(route, 2).tolist()
-    info["route_style"] = "separate" if model.route is not None else params.route_style
+    info["route_style"] = "inlay" if inlay else ("separate" if model.route is not None else params.route_style)
     return {"files": files, "info": info}

@@ -312,8 +312,18 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <div class="seg" id="routeSeg">
           <button data-v="raised" class="on">Raised</button>
           <button data-v="groove">Groove</button>
+          <button data-v="inlay" title="Separate route piece that pushes into a slot">Inlay</button>
           <button data-v="none">None</button>
         </div>
+        <div class="hint hidden" id="inlayHint">The terrain gets a slot cut right through along the route, and the route
+          is its own piece with a flat bottom. Print them separately, in any two colours, then push the route in.
+          No AMS needed. Rectangle and square shapes only.</div>
+      </div>
+      <div class="field hidden" id="inlayField">
+        <label for="inlay_clearance">Inlay fit gap <output data-for="inlay_clearance" data-unit=" mm"></output></label>
+        <input type="range" id="inlay_clearance" min="0.05" max="0.4" step="0.05" value="0.15">
+        <div class="hint">Gap per side between the route and its slot. 0.15 mm is a snug push-fit on the A1 mini;
+          raise it if your printer runs tight.</div>
       </div>
       <label class="check" id="labelCheck"><input type="checkbox" id="label"> <span>Name plate<small>Activity name, distance, elevation and date</small></span></label>
       <input type="text" id="label_text" class="hidden" placeholder="Title (defaults to the activity name)" maxlength="60">
@@ -457,6 +467,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <h3 id="rTitle"></h3>
         <a class="btn primary" id="dl3mf">Download .3mf</a>
         <a class="btn" id="dlTerrain">Terrain STL</a>
+        <a class="btn" id="dlRoute3mf">Route .3mf</a>
         <a class="btn" id="dlRoute">Route STL</a>
         <a class="btn" id="dlPreview">Preview PNG</a>
       </div>
@@ -476,6 +487,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 <script>
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { size: 170, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0, label_mm: 16,
+                   inlay_clearance: 0.15,
                    coast_step: 0.4, sea_depth: 1.6, wave_height: 0.4 };
 const PALETTES = {
   2: ["#4f7942", "#f2efe6"],
@@ -721,7 +733,12 @@ function setSeg(id, key, v) {
   state[key] = key === "colors" ? +v : v;
   document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle("on", b.dataset.v === String(v)));
 }
-seg("routeSeg", "route");
+seg("routeSeg", "route", () => { updateRouteUi(); renderSwatches(); });
+function updateRouteUi() {
+  const inlay = state.route === "inlay";
+  $("inlayHint").classList.toggle("hidden", !inlay);
+  $("inlayField").classList.toggle("hidden", !inlay);
+}
 seg("shapeSeg", "shape", updateShapeUi);
 seg("colorSeg", "colors", renderSwatches);
 seg("waterSeg", "water", updateSeaUi);
@@ -776,7 +793,11 @@ function renderSwatches() {
     i.oninput = () => { state.swatch[key] = i.value; saveSettings(); viewer.recolor(); };
     w.append(i, document.createTextNode(label)); box.append(w);
   };
-  if (state.single) { add("filament", "Filament", FILAMENT_DEFAULT); viewer.recolor(); return; }
+  if (state.single) {
+    add("filament", "Filament", FILAMENT_DEFAULT);
+    if (state.route === "inlay") add("route", "Route", ROUTE_DEFAULT);  // printed separately
+    viewer.recolor(); return;
+  }
   const water = state.last ? state.last.info.water : true;  // before the first build, assume there may be sea
   const sea = $("sea_color").checked && water;
   if (sea && shallowOn()) { add("sea", "Deep sea", SEA_DEFAULT); add("shallow", "Shallow", SHALLOW_DEFAULT); }
@@ -785,7 +806,7 @@ function renderSwatches() {
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
   else if (sea || $("base_color").checked) add("solid", "Land", "#7d9a6a");
   else add("filament", "Filament", FILAMENT_DEFAULT);  // single colour print
-  if ($("separate_route").checked && state.route !== "none") add("route", "Route", ROUTE_DEFAULT);
+  if (state.route === "inlay" || ($("separate_route").checked && state.route !== "none")) add("route", "Route", ROUTE_DEFAULT);
   viewer.recolor();
 }
 function saveSettings() {
@@ -808,6 +829,7 @@ function applySettings(s) {
   if (s.layer) $("layer").value = s.layer;
   state.swatch = s.swatch || {};
   setSeg("routeSeg", "route", s.route || "raised");
+  updateRouteUi();
   setSeg("shapeSeg", "shape", s.shape || "rectangle");
   setSeg("colorSeg", "colors", s.colors || 1);
   setSeg("waterSeg", "water", s.water || "auto");
@@ -913,6 +935,8 @@ async function showResult(r) {
   $("dlPreview").href = r.files.preview + "?download=1";
   $("dlRoute").classList.toggle("hidden", !r.files.route);
   if (r.files.route) $("dlRoute").href = r.files.route + "?download=1";
+  $("dlRoute3mf").classList.toggle("hidden", !r.files.route_3mf);
+  if (r.files.route_3mf) $("dlRoute3mf").href = r.files.route_3mf + "?download=1";
   $("inset").src = r.files.preview + bust; $("inset").style.display = "block";
   $("vlabel").textContent = `On ${i.printer.name} bed (${i.printer.bed[0]} × ${i.printer.bed[1]} mm)`;
   $("result").classList.remove("hidden");

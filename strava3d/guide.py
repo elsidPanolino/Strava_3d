@@ -35,6 +35,17 @@ def print_guide(info: dict) -> list[str]:
             + f" Use {layer:.2f} mm layers."
         )
     steps.append("Print flat on its base. No supports or brim needed. 2 walls and 10–15% gyroid infill is plenty.")
+    if info.get("inlay"):
+        steps.append(
+            "Route inlay, a second print: open the -route.3mf (or -route.stl) and print it in your route colour, "
+            "standing on its flat bottom exactly as it loads. No supports needed. Use 3 walls so the thin piece "
+            "is solid, and a brim helps it stay put on the bed."
+        )
+        steps.append(
+            f"Push the route into the slot from above, with its flat bottom flush with the base. There is a "
+            f"{info['inlay_clearance_mm']:.2f} mm gap per side. If it's too tight, sand the route lightly or rebuild "
+            "with more clearance; if it's loose, add a drop of glue."
+        )
 
     if multi:
         if bambu:
@@ -68,7 +79,8 @@ def print_guide(info: dict) -> list[str]:
         steps.append(
             "One colour: load a single spool and print as is. Don't add any colour changes. "
             + ("The flat sea and the step at every coastline still show the shoreline. " if info.get("water") else "")
-            + "The raised route and name plate show up through light and shadow."
+            + ("The route inlay is its own print, so it can be any colour you like."
+               if info.get("inlay") else "The raised route and name plate show up through light and shadow.")
         )
     elif info.get("sea_color"):
         style = info.get("sea_style", "flat")

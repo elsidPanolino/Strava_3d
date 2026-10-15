@@ -61,6 +61,7 @@ def _params(args, plate=None) -> ModelParams:
         route_style=args.route,
         route_width_mm=args.route_width,
         route_height_mm=args.route_height,
+        inlay_clearance_mm=args.inlay_clearance,
         separate_route=args.separate_route,
         printer=args.printer,
         layer_mm=args.layer,
@@ -181,6 +182,8 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--route", choices=ROUTE_STYLES, default="raised", help="how to show the route")
     g.add_argument("--route-width", type=float, default=1.6, help="route width in mm (default 1.6)")
     g.add_argument("--route-height", type=float, default=1.0, help="route height/depth in mm (default 1.0)")
+    g.add_argument("--inlay-clearance", type=float, default=0.15,
+                   help="--route inlay: gap per side between route piece and slot in mm (default 0.15)")
     g.add_argument(
         "--separate-route",
         action="store_true",

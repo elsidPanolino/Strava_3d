@@ -28,6 +28,7 @@ PARAM_FIELDS = {
     "label_mm": ("label_mm", float),
     "route_width": ("route_width_mm", float),
     "route_height": ("route_height_mm", float),
+    "inlay_clearance": ("inlay_clearance_mm", float),
 }
 LIMITS = {
     "size_mm": (20, 400),
@@ -38,6 +39,7 @@ LIMITS = {
     "label_mm": (8, 40),
     "route_width_mm": (0.4, 10),
     "route_height_mm": (0.1, 10),
+    "inlay_clearance_mm": (0.0, 0.6),
 }
 
 
