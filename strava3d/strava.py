@@ -30,6 +30,10 @@ def default_token_path() -> Path:
     return config_dir() / "token.json"
 
 
+def default_credentials_path() -> Path:
+    return config_dir() / "credentials.json"
+
+
 def load_dotenv(path: Path = Path(".env")) -> None:
     """Load KEY=VALUE lines from a .env file into os.environ (without overriding)."""
     if not path.exists():
@@ -48,17 +52,39 @@ class Credentials:
     client_secret: str
 
     @classmethod
-    def from_env(cls) -> "Credentials":
+    def load(cls, path: Path | None = None) -> "Credentials | None":
+        """From STRAVA_CLIENT_ID/SECRET (env or .env), else the file saved by the web UI."""
         load_dotenv()
         cid = os.environ.get("STRAVA_CLIENT_ID")
         secret = os.environ.get("STRAVA_CLIENT_SECRET")
-        if not cid or not secret:
+        if cid and secret:
+            return cls(cid, secret)
+        path = path or default_credentials_path()
+        if path.exists():
+            data = json.loads(path.read_text())
+            if data.get("client_id") and data.get("client_secret"):
+                return cls(str(data["client_id"]), data["client_secret"])
+        return None
+
+    @classmethod
+    def from_env(cls) -> "Credentials":
+        creds = cls.load()
+        if creds is None:
             raise SystemExit(
                 "Missing STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET. Create an API app at "
                 "https://www.strava.com/settings/api and put them in a .env file "
-                "(see .env.example)."
+                "(see .env.example), or enter them in `strava3d ui`."
             )
-        return cls(cid, secret)
+        return creds
+
+    def save(self, path: Path | None = None) -> None:
+        path = path or default_credentials_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"client_id": self.client_id, "client_secret": self.client_secret}))
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
 
 
 class StravaError(RuntimeError):

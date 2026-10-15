@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Turn Strava activities into 3D-printable terrain models (STL)"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.22", "pillow>=9.0", "requests>=2.25"]
+dependencies = ["numpy>=1.22", "pillow>=9.0", "requests>=2.25", "flask>=2.2"]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -18,3 +18,6 @@ strava3d = "strava3d.cli:main"
 
 [tool.setuptools]
 packages = ["strava3d"]
+
+[tool.setuptools.package-data]
+strava3d = ["static/*"]

@@ -5,7 +5,7 @@ your Strava account through the official API, downloads the GPS track of an acti
 gets elevation data for the surrounding area, and writes a watertight STL: a terrain
 tile with your route raised on it (or cut into it). It also writes a PNG preview.
 
-![example preview](examples/tamalpais-loop-preview.png)
+![Strava 3D web interface](docs/ui.png)
 
 ## How it works
 
@@ -30,6 +30,27 @@ pip install -e .
 1. Go to <https://www.strava.com/settings/api> and create an app.
 2. Set **Authorization Callback Domain** to `localhost`.
 3. Copy `.env.example` to `.env` and fill in your **Client ID** and **Client Secret**.
+
+## Web interface (easiest)
+
+```bash
+strava3d ui
+```
+
+This opens <http://localhost:8765> in your browser. There you can:
+
+1. **Set up**: paste your Strava Client ID and Client Secret (first run only; they're saved in
+   `~/.config/strava3d/credentials.json`). If you prefer, put them in `.env` instead.
+2. **Connect with Strava**: log in once. Disconnect from the top-right corner.
+3. **Choose a route**: pick an activity from your list (with route thumbnails), or drop in a GPX file.
+4. **Tune it**: size, vertical exaggeration, route style, square tile, separate route body,
+   plus advanced options.
+5. **Build**: rotate and zoom the result in the 3D viewer, then download the STL files.
+
+The viewer is plain WebGL with no external scripts, so the UI also works offline
+once elevation tiles are cached.
+
+## Command line
 
 ### Connect your account
 

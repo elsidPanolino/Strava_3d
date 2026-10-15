@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,3 +95,8 @@ def project(lat, lon, bbox: BBox):
     x = np.radians(np.asarray(lon) - bbox.west) * EARTH_RADIUS_M * math.cos(lat0)
     y = np.radians(np.asarray(lat) - bbox.south) * EARTH_RADIUS_M
     return x, y
+
+
+def slug(text: str) -> str:
+    """File-name-safe version of an activity name."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "activity"

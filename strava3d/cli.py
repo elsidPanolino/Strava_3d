@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import re
 from datetime import datetime
 from pathlib import Path
 
-from .geo import read_gpx
-from .model import ROUTE_STYLES, ModelParams, build_model, render_preview
+from .geo import read_gpx, slug
+from .model import ROUTE_STYLES, ModelParams, build_and_export
 from .strava import DEFAULT_PORT, Credentials, StravaClient
 
 
@@ -52,34 +51,16 @@ def _params(args) -> ModelParams:
     )
 
 
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "activity"
-
-
 def _build_and_save(points, name: str, args) -> None:
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Building model from {len(points)} GPS points (downloading elevation tiles)...")
-    model = build_model(points, _params(args))
-
-    terrain_path = out_dir / f"{name}-terrain.stl"
-    model.terrain.write_stl(terrain_path, name=name)
-    written = [terrain_path]
-    if model.route is not None:
-        route_path = out_dir / f"{name}-route.stl"
-        model.route.write_stl(route_path, name=f"{name}-route")
-        written.append(route_path)
-    preview_path = out_dir / f"{name}-preview.png"
-    render_preview(model, preview_path)
-    written.append(preview_path)
-
-    info = model.info
+    result = build_and_export(points, name, _params(args), Path(args.out))
+    info = result["info"]
     w, h, t = info["size_mm"]
     print(f"Model size: {w} x {h} mm, max height {t} mm  (horizontal scale {info['scale']})")
     lo, hi = info["elevation_range_m"]
     print(f"Elevation: {lo} m - {hi} m, vertical exaggeration x{args.exaggeration}")
-    print(f"Triangles: {len(model.terrain.faces):,}")
-    for path in written:
+    print(f"Triangles: {info['triangles']:,}")
+    for path in result["files"].values():
         print(f"  wrote {path}")
 
 
@@ -88,7 +69,7 @@ def cmd_build(args) -> None:
     activity = client.activity(args.activity_id)
     points = client.activity_latlng(args.activity_id)
     date = activity.get("start_date_local", "")[:10]
-    name = args.name or f"{date}-{_slug(activity.get('name', str(args.activity_id)))}"
+    name = args.name or f"{date}-{slug(activity.get('name', str(args.activity_id)))}"
     print(f"Activity: {activity.get('name')} ({date})")
     _build_and_save(points, name, args)
 
@@ -106,6 +87,12 @@ def cmd_gpx(args) -> None:
     points = read_gpx(args.file)
     name = args.name or Path(args.file).stem
     _build_and_save(points, name, args)
+
+
+def cmd_ui(args) -> None:
+    from .web import serve
+
+    serve(port=args.port, out_dir=args.out, open_browser=not args.no_browser)
 
 
 def _add_model_args(p: argparse.ArgumentParser) -> None:
@@ -157,6 +144,12 @@ def main(argv=None) -> None:
     p.add_argument("file")
     _add_model_args(p)
     p.set_defaults(func=cmd_gpx)
+
+    p = sub.add_parser("ui", help="open the web interface in your browser")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("-o", "--out", default="output", help="output directory (default ./output)")
+    p.add_argument("--no-browser", action="store_true", help="don't open a browser")
+    p.set_defaults(func=cmd_ui)
 
     args = parser.parse_args(argv)
     started = datetime.now()

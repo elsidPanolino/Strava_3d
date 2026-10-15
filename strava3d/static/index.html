@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strava 3D</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M2 26 L11 10 L17 19 L21 13 L30 26 Z' fill='%23fc4c02'/></svg>">
+<style>
+:root {
+  --bg: #f5f4f1;
+  --panel: #ffffff;
+  --panel-2: #f0eeea;
+  --text: #1d1d1b;
+  --muted: #6b6a66;
+  --border: #e2dfd9;
+  --accent: #fc4c02;
+  --accent-ink: #ffffff;
+  --accent-soft: #fff1ea;
+  --danger: #c62828;
+  --viewer-bg: #e9e7e2;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --panel: #1d1d1b;
+    --panel-2: #262624;
+    --text: #efeee9;
+    --muted: #9c9a93;
+    --border: #34332f;
+    --accent-soft: #3a2116;
+    --viewer-bg: #222220;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.brand svg { width: 28px; height: 28px; }
+.who { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.who img { width: 28px; height: 28px; border-radius: 50%; }
+main {
+  display: grid; grid-template-columns: 380px 1fr; gap: 20px;
+  padding: 20px 24px; max-width: 1500px; margin: 0 auto;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 12px 16px; } }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px;
+}
+.card h2 {
+  margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.step { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; }
+button, .btn {
+  font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); padding: 8px 14px; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+button:hover, .btn:hover { background: var(--panel-2); }
+button:disabled { opacity: .5; cursor: default; }
+.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.primary:hover { background: #e34402; }
+.link { border: none; background: none; color: var(--muted); padding: 4px 6px; text-decoration: underline; }
+.wide { width: 100%; padding: 12px; font-size: 15px; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--panel-2); border-radius: 8px; padding: 3px; margin-bottom: 12px; }
+.tabs button { border: none; background: transparent; padding: 7px; }
+.tabs button.on { background: var(--panel); box-shadow: var(--shadow); font-weight: 600; }
+.list { max-height: 360px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.act {
+  display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: center; width: 100%;
+  text-align: left; padding: 8px; border-radius: 8px; border: 1px solid transparent; background: none;
+}
+.act:hover { background: var(--panel-2); }
+.act.sel { border-color: var(--accent); background: var(--accent-soft); }
+.act canvas { width: 48px; height: 48px; border-radius: 6px; background: var(--panel-2); }
+.act .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act .meta { color: var(--muted); font-size: 12px; }
+.act[disabled] { opacity: .45; }
+.drop {
+  border: 2px dashed var(--border); border-radius: 10px; padding: 28px 12px; text-align: center;
+  color: var(--muted); cursor: pointer; display: block;
+}
+.drop.over, .drop:hover { border-color: var(--accent); color: var(--text); }
+.drop strong { color: var(--text); }
+.field { margin-bottom: 14px; }
+.field label { display: flex; justify-content: space-between; font-weight: 500; margin-bottom: 4px; }
+.field label output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.field .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+input[type=text], input[type=password] {
+  width: 100%; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); margin-bottom: 10px;
+}
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg button.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
+.check input { accent-color: var(--accent); margin-top: 3px; }
+.check small { display: block; color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); margin: 4px 0 12px; }
+.viewer {
+  position: relative; background: var(--viewer-bg); border-radius: 12px; overflow: hidden;
+  height: min(70vh, 680px); min-height: 360px; border: 1px solid var(--border);
+}
+.viewer canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.viewer canvas:active { cursor: grabbing; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
+.empty svg { width: 120px; opacity: .5; }
+.overlay { position: absolute; inset: 0; display: none; place-items: center; background: color-mix(in srgb, var(--viewer-bg) 75%, transparent); }
+.overlay.on { display: grid; }
+.spinner { width: 40px; height: 40px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vtools { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+.vtools button { padding: 6px 10px; font-size: 13px; }
+.inset { position: absolute; left: 12px; bottom: 12px; width: 140px; border-radius: 8px; border: 2px solid var(--panel); box-shadow: var(--shadow); display: none; }
+.hint-bar { position: absolute; bottom: 12px; right: 12px; color: var(--muted); font-size: 12px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+@media (max-width: 600px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.stat .k { color: var(--muted); font-size: 12px; }
+.stat .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.downloads { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.downloads h3 { margin: 0 auto 0 0; font-size: 16px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--danger); color: #fff;
+  padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
+.setup ol { padding-left: 20px; margin: 0 0 14px; }
+.setup li { margin-bottom: 6px; }
+a { color: var(--accent); }
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 32 32"><path d="M2 26 L11 10 L17 19 L21 13 L30 26 Z" fill="#fc4c02"/><path d="M6 24 L12 17 L16 21 L22 16" stroke="#fff" stroke-width="1.6" fill="none"/></svg>
+    Strava 3D
+  </div>
+  <div class="who" id="who"></div>
+</header>
+
+<main>
+  <section>
+    <!-- Setup (shown until API credentials exist) -->
+    <div class="card setup hidden" id="setup">
+      <h2><span class="step">!</span> Connect your Strava API app</h2>
+      <ol>
+        <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an app.</li>
+        <li>Set <b>Authorization Callback Domain</b> to <code>localhost</code>.</li>
+        <li>Paste the Client ID and Client Secret below.</li>
+      </ol>
+      <input type="text" id="cid" placeholder="Client ID (e.g. 123456)" autocomplete="off">
+      <input type="password" id="csecret" placeholder="Client Secret" autocomplete="off">
+      <button class="primary wide" id="saveCreds">Save</button>
+      <p class="muted" style="margin-bottom:0">Stored only on this computer. No Strava? Use the <b>GPX file</b> tab.</p>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">1</span> Choose a route</h2>
+      <div class="tabs">
+        <button id="tabStrava" class="on">Strava</button>
+        <button id="tabGpx">GPX file</button>
+      </div>
+      <div id="paneStrava">
+        <div id="connect" class="hidden" style="text-align:center;padding:12px 0">
+          <p class="muted">Log in to Strava to see your activities.</p>
+          <a class="btn primary wide" href="/login">Connect with Strava</a>
+        </div>
+        <div id="needsSetup" class="hidden muted" style="padding:8px 0">Finish the setup above first.</div>
+        <div id="actWrap" class="hidden">
+          <div class="list" id="acts"></div>
+          <button class="wide" id="more" style="margin-top:8px">Load more</button>
+        </div>
+      </div>
+      <div id="paneGpx" class="hidden">
+        <label class="drop" id="drop">
+          <input type="file" id="gpx" accept=".gpx" hidden>
+          <strong id="gpxName">Drop a .gpx file here</strong><br>or click to browse
+        </label>
+        <p class="muted" style="margin-bottom:0">Strava → activity → ⋯ → Export GPX also works.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">2</span> Model settings</h2>
+      <div class="field">
+        <label for="size">Size (longest side) <output data-for="size" data-unit=" mm"></output></label>
+        <input type="range" id="size" min="50" max="300" step="5" value="150">
+      </div>
+      <div class="field">
+        <label for="exaggeration">Vertical exaggeration <output data-for="exaggeration" data-unit="×"></output></label>
+        <input type="range" id="exaggeration" min="0.5" max="6" step="0.1" value="1.5">
+        <div class="hint">Use 3–4× for flat rides.</div>
+      </div>
+      <div class="field">
+        <label>Route</label>
+        <div class="seg" id="routeSeg">
+          <button data-v="raised" class="on">Raised</button>
+          <button data-v="groove">Groove</button>
+          <button data-v="none">None</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="square"> <span>Square tile</span></label>
+      <label class="check"><input type="checkbox" id="separate_route"> <span>Separate route STL<small>For two-colour printing (AMS / MMU)</small></span></label>
+      <details>
+        <summary>Advanced</summary>
+        <div class="field">
+          <label for="base">Base thickness <output data-for="base" data-unit=" mm"></output></label>
+          <input type="range" id="base" min="1" max="10" step="0.5" value="3">
+        </div>
+        <div class="field">
+          <label for="padding">Margin around route <output data-for="padding" data-unit="%" data-scale="100"></output></label>
+          <input type="range" id="padding" min="0" max="0.6" step="0.02" value="0.1">
+        </div>
+        <div class="field">
+          <label for="resolution">Mesh detail <output data-for="resolution" data-unit=" mm"></output></label>
+          <input type="range" id="resolution" min="0.3" max="2" step="0.1" value="0.5">
+          <div class="hint">Smaller gives finer detail and bigger files.</div>
+        </div>
+        <div class="field">
+          <label for="route_width">Route width <output data-for="route_width" data-unit=" mm"></output></label>
+          <input type="range" id="route_width" min="0.8" max="5" step="0.1" value="1.6">
+        </div>
+        <div class="field">
+          <label for="route_height">Route height / depth <output data-for="route_height" data-unit=" mm"></output></label>
+          <input type="range" id="route_height" min="0.2" max="3" step="0.1" value="1.0">
+        </div>
+        <button class="link" id="reset">Reset to defaults</button>
+      </details>
+    </div>
+
+    <button class="primary wide" id="build" disabled>Build 3D model</button>
+  </section>
+
+  <section>
+    <div class="viewer">
+      <canvas id="gl"></canvas>
+      <div class="empty" id="empty">
+        <div>
+          <svg viewBox="0 0 120 70"><path d="M2 66 L36 18 L58 46 L74 30 L118 66 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M16 60 Q40 40 56 52 T96 46" fill="none" stroke="#fc4c02" stroke-width="3" stroke-linecap="round"/></svg>
+          <p>Choose an activity and click <b>Build 3D model</b>.</p>
+        </div>
+      </div>
+      <div class="overlay" id="busy"><div style="text-align:center"><div class="spinner"></div><div>Downloading elevation and building the mesh…</div></div></div>
+      <div class="vtools hidden" id="vtools">
+        <button id="viewTop">Top</button>
+        <button id="viewReset">3D view</button>
+      </div>
+      <img class="inset" id="inset" alt="Top-down preview">
+      <div class="hint-bar hidden" id="vhint">Drag to rotate · scroll to zoom</div>
+    </div>
+
+    <div id="result" class="hidden">
+      <div class="stats">
+        <div class="stat"><div class="k">Size</div><div class="v" id="sSize"></div></div>
+        <div class="stat"><div class="k">Max height</div><div class="v" id="sHeight"></div></div>
+        <div class="stat"><div class="k">Elevation</div><div class="v" id="sElev"></div></div>
+        <div class="stat"><div class="k">Scale</div><div class="v" id="sScale"></div></div>
+      </div>
+      <div class="card downloads">
+        <h3 id="rTitle"></h3>
+        <a class="btn primary" id="dlTerrain">Download terrain STL</a>
+        <a class="btn" id="dlRoute">Download route STL</a>
+        <a class="btn" id="dlPreview">Preview PNG</a>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const DEFAULTS = { size: 150, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0 };
+const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised" };
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.style.display = "none"), 6000);
+}
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+function recall(key) { try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; } }
+
+// ---------- Status / setup ----------
+async function loadStatus() {
+  const s = await api("/api/status");
+  $("setup").classList.toggle("hidden", s.configured);
+  $("needsSetup").classList.toggle("hidden", s.configured);
+  $("connect").classList.toggle("hidden", !s.configured || s.connected);
+  $("actWrap").classList.toggle("hidden", !s.connected);
+  const who = $("who"); who.innerHTML = "";
+  if (s.connected) {
+    const a = s.athlete || {};
+    if (a.profile_medium) { const img = new Image(); img.src = a.profile_medium; img.alt = ""; who.append(img); }
+    who.append(document.createTextNode(`${a.firstname || "Connected"} ${a.lastname || ""}`));
+    const out = document.createElement("button"); out.className = "link"; out.textContent = "Disconnect";
+    out.onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
+    who.append(out);
+    loadActivities(1);
+  }
+  if (!s.configured) { state.source = "gpx"; }
+  setSource(state.source);
+}
+$("saveCreds").onclick = async () => {
+  try {
+    await api("/api/credentials", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: $("cid").value, client_secret: $("csecret").value }) });
+    state.source = "strava"; loadStatus();
+  } catch (e) { toast(e.message); }
+};
+
+// ---------- Source tabs ----------
+function setSource(src) {
+  state.source = src;
+  $("tabStrava").classList.toggle("on", src === "strava");
+  $("tabGpx").classList.toggle("on", src === "gpx");
+  $("paneStrava").classList.toggle("hidden", src !== "strava");
+  $("paneGpx").classList.toggle("hidden", src !== "gpx");
+  updateBuild();
+}
+$("tabStrava").onclick = () => setSource("strava");
+$("tabGpx").onclick = () => setSource("gpx");
+function updateBuild() {
+  $("build").disabled = !(state.source === "strava" ? state.activity : state.gpxFile);
+}
+
+// ---------- Activities ----------
+function decodePolyline(str) {
+  const pts = []; let i = 0, lat = 0, lng = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(i++) - 63; result |= (b & 31) << shift; shift += 5; } while (b >= 32);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (k === 0) lat += d; else lng += d;
+    }
+    pts.push([lat / 1e5, lng / 1e5]);
+  }
+  return pts;
+}
+function drawRoute(canvas, poly) {
+  const dpr = devicePixelRatio || 1, S = 48;
+  canvas.width = canvas.height = S * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  const pts = decodePolyline(poly); if (pts.length < 2) return;
+  const k = Math.cos(pts[0][0] * Math.PI / 180);
+  const xs = pts.map(p => p[1] * k), ys = pts.map(p => p[0]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const span = Math.max(maxX - minX, maxY - minY) || 1, pad = 6, sc = (S - 2 * pad) / span;
+  const ox = (S - (maxX - minX) * sc) / 2, oy = (S - (maxY - minY) * sc) / 2;
+  ctx.strokeStyle = "#fc4c02"; ctx.lineWidth = 1.6; ctx.lineJoin = ctx.lineCap = "round"; ctx.beginPath();
+  pts.forEach((_, i) => {
+    const x = ox + (xs[i] - minX) * sc, y = S - oy - (ys[i] - minY) * sc;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+}
+async function loadActivities(page) {
+  const btn = $("more"); btn.disabled = true; btn.textContent = "Loading…";
+  try {
+    const acts = await api(`/api/activities?page=${page}`);
+    state.page = page;
+    const list = $("acts");
+    if (page === 1) list.innerHTML = "";
+    for (const a of acts) {
+      const el = document.createElement("button"); el.className = "act";
+      const c = document.createElement("canvas");
+      const body = document.createElement("div");
+      const name = document.createElement("div"); name.className = "name"; name.textContent = a.name;
+      const meta = document.createElement("div"); meta.className = "meta";
+      meta.textContent = `${a.date} · ${a.type} · ${a.distance_km} km · ${a.elevation_m} m ↑` + (a.polyline ? "" : " · no GPS");
+      body.append(name, meta); el.append(c, body); list.append(el);
+      if (a.polyline) drawRoute(c, a.polyline); else el.disabled = true;
+      el.onclick = () => {
+        list.querySelectorAll(".act.sel").forEach(x => x.classList.remove("sel"));
+        el.classList.add("sel"); state.activity = a; updateBuild();
+      };
+    }
+    if (page === 1 && !acts.length) list.innerHTML = '<p class="muted">No activities found.</p>';
+    btn.classList.toggle("hidden", acts.length < 30);
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = "Load more";
+}
+$("more").onclick = () => loadActivities(state.page + 1);
+
+// ---------- GPX upload ----------
+function setGpx(file) {
+  if (!file) return;
+  state.gpxFile = file; $("gpxName").textContent = file.name; updateBuild();
+}
+$("gpx").onchange = (e) => setGpx(e.target.files[0]);
+const drop = $("drop");
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); setGpx(e.dataTransfer.files[0]); };
+
+// ---------- Settings ----------
+function syncOutputs() {
+  document.querySelectorAll("output[data-for]").forEach(o => {
+    const v = parseFloat($(o.dataset.for).value) * (parseFloat(o.dataset.scale) || 1);
+    o.textContent = (Number.isInteger(v) ? v : v.toFixed(1)) + o.dataset.unit;
+  });
+}
+function saveSettings() {
+  const s = { route: state.route, square: $("square").checked, separate_route: $("separate_route").checked };
+  for (const k in DEFAULTS) s[k] = $(k).value;
+  store("strava3d-settings", s);
+}
+function applySettings(s) {
+  for (const k in DEFAULTS) $(k).value = s && s[k] != null ? s[k] : DEFAULTS[k];
+  $("square").checked = !!(s && s.square);
+  $("separate_route").checked = !!(s && s.separate_route);
+  setRoute((s && s.route) || "raised");
+  syncOutputs();
+}
+function setRoute(v) {
+  state.route = v;
+  document.querySelectorAll("#routeSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+}
+document.querySelectorAll("#routeSeg button").forEach(b => (b.onclick = () => { setRoute(b.dataset.v); saveSettings(); }));
+document.querySelectorAll("input[type=range], input[type=checkbox]").forEach(i => (i.oninput = () => { syncOutputs(); saveSettings(); }));
+$("reset").onclick = () => { applySettings(null); saveSettings(); };
+applySettings(recall("strava3d-settings"));
+
+// ---------- Build ----------
+$("build").onclick = async () => {
+  const fd = new FormData();
+  for (const k in DEFAULTS) fd.append(k, $(k).value);
+  fd.append("route", state.route);
+  if ($("square").checked) fd.append("square", "1");
+  if ($("separate_route").checked) fd.append("separate_route", "1");
+  if (state.source === "gpx") fd.append("gpx", state.gpxFile);
+  else fd.append("activity_id", state.activity.id);
+
+  $("build").disabled = true; $("busy").classList.add("on");
+  if (matchMedia("(max-width: 900px)").matches) document.querySelector(".viewer").scrollIntoView({ behavior: "smooth" });
+  try {
+    const r = await api("/api/build", { method: "POST", body: fd });
+    await showResult(r);
+  } catch (e) { toast(e.message); }
+  $("busy").classList.remove("on"); updateBuild();
+};
+async function showResult(r) {
+  const i = r.info, bust = `?t=${Date.now()}`;
+  $("rTitle").textContent = r.title;
+  $("sSize").textContent = `${i.size_mm[0]} × ${i.size_mm[1]} mm`;
+  $("sHeight").textContent = `${i.size_mm[2]} mm`;
+  $("sElev").textContent = `${Math.round(i.elevation_range_m[0])}–${Math.round(i.elevation_range_m[1])} m`;
+  $("sScale").textContent = i.scale;
+  $("dlTerrain").href = r.files.terrain + "?download=1";
+  $("dlPreview").href = r.files.preview + "?download=1";
+  $("dlRoute").classList.toggle("hidden", !r.files.route);
+  if (r.files.route) $("dlRoute").href = r.files.route + "?download=1";
+  $("inset").src = r.files.preview + bust; $("inset").style.display = "block";
+  $("result").classList.remove("hidden");
+
+  const fetchBuf = (u) => fetch(u + bust).then(x => x.arrayBuffer());
+  const [terrain, route] = await Promise.all([fetchBuf(r.files.terrain), r.files.route ? fetchBuf(r.files.route) : null]);
+  viewer.load(terrain, route, i);
+  $("empty").classList.add("hidden"); $("vtools").classList.remove("hidden"); $("vhint").classList.remove("hidden");
+}
+
+// ---------- WebGL STL viewer ----------
+const viewer = (() => {
+  const canvas = $("gl");
+  const gl = canvas.getContext("webgl", { antialias: true });
+  if (!gl) return { load() { toast("WebGL is not available; download the STL to view it."); } };
+
+  const vs = `attribute vec3 p; attribute vec3 n; attribute vec3 c; uniform mat4 mvp;
+    varying vec3 vn; varying vec3 vc;
+    void main() { gl_Position = mvp * vec4(p, 1.0); vn = n; vc = c; }`;
+  const fs = `precision mediump float; varying vec3 vn; varying vec3 vc;
+    void main() {
+      vec3 n = normalize(vn);
+      float d = max(dot(n, normalize(vec3(-0.5, 0.6, 0.9))), 0.0);
+      float f = max(dot(n, normalize(vec3(0.6, -0.4, 0.3))), 0.0);
+      gl_FragColor = vec4(vc * (0.30 + 0.62 * d + 0.18 * f), 1.0);
+    }`;
+  function shader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const loc = { p: gl.getAttribLocation(prog, "p"), n: gl.getAttribLocation(prog, "n"), c: gl.getAttribLocation(prog, "c"), mvp: gl.getUniformLocation(prog, "mvp") };
+  gl.enable(gl.DEPTH_TEST);
+
+  let meshes = [], center = [0, 0, 0], radius = 100;
+  const cam = { theta: -Math.PI / 2, phi: 0.75, dist: 2.2 };
+
+  // Rasterise the route outline so terrain triangles on the route can be tinted orange.
+  function routeMask(info) {
+    if (!info || !["raised", "groove"].includes(info.route_style) || !info.route_mm || info.route_mm.length < 2) return null;
+    const ppm = 4, [w, h] = info.size_mm;
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(w * ppm) + 1; c.height = Math.ceil(h * ppm) + 1;
+    const ctx = c.getContext("2d");
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = (info.route_width_mm + 0.8) * ppm;  // include the ridge flanks ctx.lineCap = ctx.lineJoin = "round";
+    ctx.beginPath();
+    info.route_mm.forEach(([x, y], i) => (i ? ctx.lineTo(x * ppm, y * ppm) : ctx.moveTo(x * ppm, y * ppm)));
+    ctx.stroke();
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    return (x, y) => {
+      const px = Math.round(x * ppm), py = Math.round(y * ppm);
+      if (px < 0 || py < 0 || px >= c.width || py >= c.height) return false;
+      return data[(py * c.width + px) * 4] > 127;
+    };
+  }
+
+  function parse(buf, colorFn) {
+    const dv = new DataView(buf), n = dv.getUint32(80, true);
+    const pos = new Float32Array(n * 9), nrm = new Float32Array(n * 9), col = new Float32Array(n * 9);
+    for (let i = 0; i < n; i++) {
+      const o = 84 + i * 50 + 12;
+      for (let k = 0; k < 9; k++) pos[i * 9 + k] = dv.getFloat32(o + k * 4, true);
+    }
+    for (let i = 0; i < n; i++) {
+      const b = i * 9;
+      const ux = pos[b + 3] - pos[b], uy = pos[b + 4] - pos[b + 1], uz = pos[b + 5] - pos[b + 2];
+      const vx = pos[b + 6] - pos[b], vy = pos[b + 7] - pos[b + 1], vz = pos[b + 8] - pos[b + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      const cx = (pos[b] + pos[b + 3] + pos[b + 6]) / 3, cy = (pos[b + 1] + pos[b + 4] + pos[b + 7]) / 3, cz = (pos[b + 2] + pos[b + 5] + pos[b + 8]) / 3;
+      const rgb = colorFn(cx, cy, cz, nz);
+      for (let k = 0; k < 3; k++) {
+        nrm[b + k * 3] = nx; nrm[b + k * 3 + 1] = ny; nrm[b + k * 3 + 2] = nz;
+        col[b + k * 3] = rgb[0]; col[b + k * 3 + 1] = rgb[1]; col[b + k * 3 + 2] = rgb[2];
+      }
+    }
+    return { pos, nrm, col, count: n * 3 };
+  }
+  function upload(m) {
+    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); return b; };
+    return { p: mk(m.pos), n: mk(m.nrm), c: mk(m.col), count: m.count, pos: m.pos };
+  }
+  function load(terrainBuf, routeBuf, info) {
+    meshes.forEach(m => [m.p, m.n, m.c].forEach(b => gl.deleteBuffer(b)));
+    const [w, h] = info.size_mm, zmax = info.size_mm[2], onRoute = routeMask(info), e = 1e-3;
+    const low = [0.47, 0.58, 0.40], high = [0.93, 0.90, 0.84], side = [0.62, 0.60, 0.56], orange = [0.99, 0.30, 0.01];
+    const terrain = parse(terrainBuf, (x, y, z, nz) => {
+      if (nz < -0.5 || x < e || y < e || x > w - e || y > h - e) return side;
+      if (onRoute && onRoute(x, y)) return orange;
+      const t = Math.min(1, Math.max(0, z / zmax)) ** 1.2;
+      return low.map((v, k) => v + (high[k] - v) * t);
+    });
+    meshes = [upload(terrain)];
+    if (routeBuf) meshes.push(upload(parse(routeBuf, () => orange)));
+    center = [w / 2, h / 2, zmax / 3];
+    radius = Math.hypot(w, h, zmax) / 2;
+    resetView(); draw();
+  }
+
+  // ---- matrices (column-major) ----
+  function perspective(fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+  }
+  function lookAt(eye, c, up) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const norm = (a) => { const l = Math.hypot(...a) || 1; return a.map(v => v / l); };
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const z = norm(sub(eye, c)), x = norm(cross(up, z)), y = cross(z, x);
+    return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1];
+  }
+  function mul(a, b) {
+    const o = new Array(16).fill(0);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) o[i * 4 + j] += a[k * 4 + j] * b[i * 4 + k];
+    return o;
+  }
+
+  function draw() {
+    const dpr = devicePixelRatio || 1;
+    const W = Math.round(canvas.clientWidth * dpr), H = Math.round(canvas.clientHeight * dpr);
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    gl.viewport(0, 0, W, H);
+    const bg = getComputedStyle(canvas.parentElement).backgroundColor.match(/\d+/g).map(Number);
+    gl.clearColor(bg[0] / 255, bg[1] / 255, bg[2] / 255, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (!meshes.length) return;
+    const d = cam.dist * radius;
+    const eye = [center[0] + d * Math.cos(cam.phi) * Math.cos(cam.theta),
+                 center[1] + d * Math.cos(cam.phi) * Math.sin(cam.theta),
+                 center[2] + d * Math.sin(cam.phi)];
+    const up = cam.phi > 1.55 ? [0, 1, 0] : [0, 0, 1];
+    const mvp = mul(perspective(0.6, W / H, radius * 0.05, radius * 20), lookAt(eye, center, up));
+    gl.uniformMatrix4fv(loc.mvp, false, new Float32Array(mvp));
+    for (const m of meshes) {
+      for (const [attr, buf] of [[loc.p, m.p], [loc.n, m.n], [loc.c, m.c]]) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(attr); gl.vertexAttribPointer(attr, 3, gl.FLOAT, false, 0, 0);
+      }
+      gl.drawArrays(gl.TRIANGLES, 0, m.count);
+    }
+  }
+  let frame = 0;
+  const redraw = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; draw(); }); };
+  function resetView() { cam.theta = -Math.PI / 2; cam.phi = 0.75; cam.dist = 2.2; redraw(); }
+  function topView() { cam.theta = -Math.PI / 2; cam.phi = 1.5707; cam.dist = 2.4; redraw(); }
+
+  let drag = null;
+  canvas.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    cam.theta -= (e.clientX - drag[0]) * 0.008;
+    cam.phi = Math.min(1.5707, Math.max(0.05, cam.phi + (e.clientY - drag[1]) * 0.008));
+    drag = [e.clientX, e.clientY]; redraw();
+  });
+  canvas.addEventListener("pointerup", () => (drag = null));
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault(); cam.dist = Math.min(8, Math.max(0.6, cam.dist * Math.exp(e.deltaY * 0.001))); redraw();
+  }, { passive: false });
+  new ResizeObserver(redraw).observe(canvas);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
+  $("viewReset").onclick = resetView; $("viewTop").onclick = topView;
+  return { load };
+})();
+
+if (new URLSearchParams(location.search).get("error")) {
+  toast("Strava authorization was cancelled or failed."); history.replaceState(null, "", "/");
+}
+loadStatus().catch(e => toast(e.message));
+</script>
+</body>
+</html>

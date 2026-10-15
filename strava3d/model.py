@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -189,3 +190,25 @@ def render_preview(model: TerrainModel, path, max_px: int = 1000) -> None:
     factor = max_px / max(img.size)
     img = img.resize((round(img.width * factor), round(img.height * factor)), Image.LANCZOS)
     img.save(path)
+
+
+def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetcher=None) -> dict:
+    """Build a model and write `<name>-terrain.stl`, `-route.stl` (optional) and `-preview.png`."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model = build_model(points, params, fetcher=fetcher)
+    files = {"terrain": out_dir / f"{name}-terrain.stl"}
+    model.terrain.write_stl(files["terrain"], name=name)
+    if model.route is not None:
+        files["route"] = out_dir / f"{name}-route.stl"
+        model.route.write_stl(files["route"], name=f"{name}-route")
+    files["preview"] = out_dir / f"{name}-preview.png"
+    render_preview(model, files["preview"])
+    info = {k: v for k, v in model.info.items() if k != "bbox"}
+    info["triangles"] = len(model.terrain.faces)
+    # Route outline (mm, decimated) so viewers can colour the route on the terrain.
+    route = model.route_xy[:: max(1, len(model.route_xy) // 3000)]
+    info["route_mm"] = np.round(route, 2).tolist()
+    info["route_width_mm"] = params.route_width_mm
+    info["route_style"] = "separate" if model.route is not None else params.route_style
+    return {"files": files, "info": info}
