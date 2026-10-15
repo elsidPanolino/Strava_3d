@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .label import text_mask
-from .mesh import Mesh, heightmap_solid, hexahedron
+from .mesh import Mesh, heightmap_solid, hexahedron, masked_heightmap_solid
 from .model import _filament_grams, _surface_area
 from .printers import PRINTERS, snap
 
@@ -29,6 +29,11 @@ class FrameParams:
     text_mm: float = 0.6  # raised text height
     printer: str = "a1mini"
     layer_mm: float = 0.2
+    mount: bool = False  # keyhole slots in the back (underside of the floor) for hanging on a wall
+    mount_floor_mm: float = 4.0  # floor thickness needed to hide the keyholes
+    screw_head_mm: float = 9.0  # keyhole entry diameter (screw head up to ~8.5 mm)
+    screw_shank_mm: float = 4.5  # slot width (screw shank up to ~4 mm)
+    slot_len_mm: float = 10.0  # how far the screw slides up into the slot
 
 
 def _box(x0, y0, x1, y1, z0, z1) -> Mesh:
@@ -38,11 +43,67 @@ def _box(x0, y0, x1, y1, z0, z1) -> Mesh:
     return hexahedron(b, t)
 
 
+def _seg_dist(gx, gy, ax, ay, bx, by):
+    vx, vy = bx - ax, by - ay
+    t = np.clip(((gx - ax) * vx + (gy - ay) * vy) / max(vx * vx + vy * vy, 1e-12), 0, 1)
+    return np.hypot(gx - (ax + t * vx), gy - (ay + t * vy))
+
+
+def _keyhole_patch(x0, y0, w, h, cx, cy, p: FrameParams, floor: float) -> list[Mesh]:
+    """A w x h block of floor with a keyhole cut in from the underside.
+
+    Layers (bottom up): the keyhole outline (entry hole + narrow slot) the screw passes
+    through; a channel as wide as the head for it to slide in; a solid roof.
+    """
+    cell = 0.2
+    nx, ny = int(round(w / cell)) + 1, int(round(h / cell)) + 1
+    dx, dy = w / (nx - 1), h / (ny - 1)
+    gx = np.arange(nx)[None, :] * dx
+    gy = np.arange(ny)[:, None] * dy
+    R, r, L = p.screw_head_mm / 2, p.screw_shank_mm / 2, p.slot_len_mm
+    lcx, lcy = cx - x0, cy - y0
+    hole = np.hypot(gx - lcx, gy - lcy) - R
+    slot = _seg_dist(gx, gy, lcx, lcy, lcx, lcy + L)
+    lip, channel_top, roof = 1.6, floor - 0.6, floor
+    shells = []
+    for z0, z1, f in ((0.0, lip, np.minimum(hole, slot - r)),  # keep material outside hole + slot
+                      (lip, channel_top, slot - R)):  # channel for the head to slide along
+        z = np.full((ny, nx), z1)
+        m = masked_heightmap_solid(z, f, dx, dy, z_bottom=z0)
+        m.vertices[:, 0] += x0
+        m.vertices[:, 1] += y0
+        shells.append(m)
+    shells.append(_box(x0, y0, x0 + w, y0 + h, channel_top, roof))
+    return shells
+
+
+def _floor_with_mount(x0, y0, w, d, floor, p: FrameParams):
+    """Floor slab with two keyholes near the top (north) edge; returns shells and centres."""
+    pw, ph = p.screw_head_mm + 6, p.slot_len_mm + p.screw_head_mm + 6
+    py0 = y0 + d - ph - 12  # keyholes sit 12 mm below the top wall
+    centres = [(x0 + w * f, py0 + 3 + p.screw_head_mm / 2) for f in (0.25, 0.75)]
+    shells = []
+    xs = [x0]
+    for cx, cy in centres:
+        px0 = cx - pw / 2
+        shells += _keyhole_patch(px0, py0, pw, ph, cx, cy, p, floor)
+        xs += [px0, px0 + pw]
+    xs.append(x0 + w)
+    # Plain floor around the patches: below, above, and the gaps beside them.
+    shells.append(_box(x0, y0, x0 + w, py0, 0, floor))
+    shells.append(_box(x0, py0 + ph, x0 + w, y0 + d, 0, floor))
+    for a, b in zip(xs[::2], xs[1::2]):
+        if b - a > 1e-6:
+            shells.append(_box(a, py0, b, py0 + ph, 0, floor))
+    return shells, centres
+
+
 def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
     """Return the frame mesh (several touching closed shells) and info for the UI."""
     printer = PRINTERS.get(p.printer, PRINTERS["a1mini"])
     layer = p.layer_mm
-    floor = snap(p.floor_mm, layer) if p.floor else 0.0
+    mount = p.mount
+    floor = snap(max(p.floor_mm, p.mount_floor_mm) if mount else p.floor_mm, layer) if (p.floor or mount) else 0.0
     text = [t.strip() for t in (p.title, p.stats) if t and t.strip()]
     text_h = snap(p.text_mm, layer)
     wall = p.wall_mm
@@ -73,11 +134,15 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         shells.append(heightmap_solid(z, out_w / (nx - 1), band / (ny - 1)))
     else:
         shells.append(_box(0, 0, out_w, band, 0, height))
-    if floor:
+    centres = []
+    if floor and mount:
+        floor_shells, centres = _floor_with_mount(x_in0, y_in0, in_w, in_d, floor, p)
+        shells += floor_shells
+    elif floor:
         shells.append(_box(x_in0, y_in0, x_in0 + in_w, y_in0 + in_d, 0, floor))
     mesh = Mesh.merge(shells)
 
-    m = 2 * printer.margin
+    m = 2 * 2.0  # a frame's straight edges print fine close to the bed edge: 2 mm margin
     fits = (out_w <= printer.bed_x - m and out_d <= printer.bed_y - m) or (
         out_w <= printer.bed_y - m and out_d <= printer.bed_x - m)
     warnings = []
@@ -105,6 +170,9 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         "printer": printer.to_dict(),
         "warnings": warnings,
         "filament_g": _filament_grams(mesh.volume(), _surface_area(mesh)),
+        "mount": bool(centres),
+        "keyhole_spacing_mm": round(centres[1][0] - centres[0][0], 1) if centres else 0,
+        "keyhole_from_top_mm": round(out_d - centres[0][1], 1) if centres else 0,
     }
     return mesh, info
 
@@ -117,6 +185,13 @@ def frame_guide(info: dict) -> list[str]:
         f"There's a gap of {info['opening_mm'][0] - info['tile_mm'][0]:.1f} mm in total around it, and the walls "
         f"rise {info['headroom_mm']:.1f} mm above the highest peak.",
     ]
+    if info.get("mount"):
+        steps.append(
+            f"Wall mount: two keyholes in the back, {info['keyhole_spacing_mm']:.0f} mm apart and "
+            f"{info['keyhole_from_top_mm']:.0f} mm below the top edge. Put two screws in the wall at that spacing, "
+            "level, leaving the heads about 3 mm out (heads up to 8.5 mm wide, shanks up to 4 mm). Push the frame "
+            "onto them and slide it down so it locks. Hang it with the text band at the bottom."
+        )
     if info["has_text"]:
         steps.append("The title and stats are raised on the front band. For coloured text, add a filament "
                      f"change at the top of the frame (Z {info['outer_mm'][2]:.2f} mm) in Bambu Studio.")

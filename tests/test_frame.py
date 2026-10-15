@@ -42,6 +42,20 @@ def test_frame_too_big_for_bed_suggests_tile_size():
     assert any("Drop the terrain tile" in g for g in frame_guide(open_info))
 
 
+def test_wall_mount_keyholes():
+    mesh, info = build_frame(FrameParams(tile_w=150, tile_d=150, tile_h=8, wall_mm=5, band_mm=15, mount=True,
+                                         title="Morning Ride", stats="65.8 km"))
+    plain, pinfo = build_frame(FrameParams(tile_w=150, tile_d=150, tile_h=8, wall_mm=5, band_mm=15, floor_mm=4.0,
+                                           title="Morning Ride", stats="65.8 km"))
+    assert mesh.is_watertight() and info["mount"] and info["floor_mm"] == 4.0
+    assert info["outer_mm"] == pinfo["outer_mm"] == [160.8, 170.8, 14.0]
+    removed = plain.volume() - mesh.volume()
+    assert 700 < removed < 950  # two keyholes: entry hole + slot, plus the head channel above
+    assert info["keyhole_spacing_mm"] == pytest.approx(150.8 / 2, abs=0.1)
+    assert info["fits"]  # 170.8 mm fits the 180 mm A1 mini bed
+    assert any("Wall mount" in g for g in frame_guide(info))
+
+
 def test_frame_page_flow(tmp_path, monkeypatch):
     import strava3d.model as mm
     from strava3d import web

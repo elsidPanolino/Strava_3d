@@ -286,6 +286,7 @@ def create_app(
         if printer not in PRINTERS:
             raise ValueError(f"unknown printer {printer!r}")
         fp = FrameParams(tile_w=tile_w, tile_d=tile_d, tile_h=tile_h, floor=bool(data.get("floor", True)),
+                         mount=bool(data.get("mount", False)),
                          title=str(data.get("title", ""))[:60], stats=str(data.get("stats", ""))[:90],
                          printer=printer, layer_mm=float((meta or {}).get("layer_mm") or PRINTERS[printer].layer),
                          **kw)
