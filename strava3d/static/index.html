@@ -429,6 +429,7 @@ const PALETTES = {
   3: ["#4f7942", "#a68a64", "#f2efe6"],
   4: ["#3d6b35", "#7f9b4f", "#a68a64", "#f2efe6"],
 };
+const FILAMENT_DEFAULT = "#f2f0ea";
 const BASE_DEFAULT = "#2f2f2d", SEA_DEFAULT = "#2f6fb0", ROUTE_DEFAULT = "#fc4c02";
 const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised", shape: "rectangle",
                 colors: 1, printers: [], swatch: {}, last: null, water: "auto", sport: "ride", acts: [],
@@ -709,6 +710,7 @@ function renderSwatches() {
   else if ($("base_color").checked) add("base", "Base", BASE_DEFAULT);
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
   else if (sea || $("base_color").checked) add("solid", "Land", "#7d9a6a");
+  else add("filament", "Filament", FILAMENT_DEFAULT);  // single colour print
   if ($("separate_route").checked && state.route !== "none") add("route", "Route", ROUTE_DEFAULT);
   viewer.recolor();
 }
@@ -872,7 +874,8 @@ const viewer = (() => {
       vec3 n = normalize(vn);
       float d = max(dot(n, normalize(vec3(-0.5, 0.6, 0.9))), 0.0);
       float f = max(dot(n, normalize(vec3(0.6, -0.4, 0.3))), 0.0);
-      gl_FragColor = vec4(vc * (0.30 + 0.62 * d + 0.18 * f), 1.0);
+      float sky = 0.5 + 0.5 * n.z;  // hemisphere light: up-facing surfaces brighter
+      gl_FragColor = vec4(min(vc * (0.22 + 0.22 * sky + 0.55 * d + 0.12 * f), 1.0), 1.0);
     }`;
   function shader(type, src) {
     const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -929,7 +932,36 @@ const viewer = (() => {
       cen[i * 4 + 2] = (pos[b + 2] + pos[b + 5] + pos[b + 8]) / 3;
       cen[i * 4 + 3] = nz;
     }
+    smoothNormals(pos, nrm, n);
     return { pos, nrm, cen, n };
+  }
+  function smoothNormals(pos, nrm, n) {
+    // STL has no shared vertices, so match corners by position and average their face
+    // normals (area weighted). Corners whose face differs by > ~60 degrees keep the flat
+    // normal, so walls and the base stay crisp while the terrain renders smooth.
+    const key = (i) => `${Math.round(pos[i] * 200)},${Math.round(pos[i + 1] * 200)},${Math.round(pos[i + 2] * 200)}`;
+    const acc = new Map(), keys = new Array(n * 3);
+    for (let t = 0; t < n; t++) {
+      const b = t * 9;
+      const ux = pos[b + 3] - pos[b], uy = pos[b + 4] - pos[b + 1], uz = pos[b + 5] - pos[b + 2];
+      const vx = pos[b + 6] - pos[b], vy = pos[b + 7] - pos[b + 1], vz = pos[b + 8] - pos[b + 2];
+      const ax = uy * vz - uz * vy, ay = uz * vx - ux * vz, az = ux * vy - uy * vx;  // area-weighted
+      for (let k = 0; k < 3; k++) {
+        const kk = key(b + k * 3); keys[t * 3 + k] = kk;
+        if (nrm[b + 2] < 0.2) continue;  // only terrain-like faces contribute
+        const a = acc.get(kk);
+        if (a) { a[0] += ax; a[1] += ay; a[2] += az; } else acc.set(kk, [ax, ay, az]);
+      }
+    }
+    for (let t = 0; t < n; t++) {
+      const b = t * 9, fx = nrm[b], fy = nrm[b + 1], fz = nrm[b + 2];  // face normal, read before overwriting
+      for (let k = 0; k < 3; k++) {
+        const a = acc.get(keys[t * 3 + k]); if (!a) continue;
+        const l = Math.hypot(a[0], a[1], a[2]) || 1, sx = a[0] / l, sy = a[1] / l, sz = a[2] / l;
+        if (sx * fx + sy * fy + sz * fz < 0.5) continue;
+        nrm[b + k * 3] = sx; nrm[b + k * 3 + 1] = sy; nrm[b + k * 3 + 2] = sz;
+      }
+    }
   }
   function colorize(m, fn) {
     const col = new Float32Array(m.n * 9);
@@ -966,8 +998,11 @@ const viewer = (() => {
     const low = [0.47, 0.58, 0.40], high = [0.93, 0.90, 0.84], side = [0.62, 0.60, 0.56];
     const routeRgb = hex2rgb(state.swatch.route || ROUTE_DEFAULT), orange = hex2rgb(ROUTE_DEFAULT);
     const bandOf = (z) => { let k = 0; while (k < bands.length && z > bands[k].z + 1e-6) k++; return colors[k]; };
+    // One filament and no colour changes: show the whole print in that filament's colour.
+    const single = bands.length === 0 && state.colors === 1 ? hex2rgb(state.swatch.filament || FILAMENT_DEFAULT) : null;
     const terrainColor = (x, y, z, nz) => {
       if (banded) return bandOf(z);
+      if (single) return single;
       if (nz < 0.01) return side;
       if (onRoute && onRoute(x, y)) return orange;
       const t = Math.min(1, Math.max(0, z / zmax)) ** 1.2;

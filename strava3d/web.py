@@ -197,7 +197,7 @@ def create_app(
                 track = read_gpx_track(path)
             points = track["points"]
             name = slug(Path(upload.filename).stem)
-            title = Path(upload.filename).stem
+            title = track["name"] or Path(upload.filename).stem
             stats = gpx_stats(track)
         elif request.form.get("activity_id"):
             c = client()
