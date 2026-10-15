@@ -139,7 +139,7 @@ details summary { cursor: pointer; color: var(--muted); margin: 4px 0 12px; }
 .vlabel { position: absolute; top: 12px; left: 12px; color: var(--muted); font-size: 12px; background: var(--panel); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); }
 .inset { position: absolute; left: 12px; bottom: 12px; width: 130px; border-radius: 8px; display: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,.25)); }
 .hint-bar { position: absolute; bottom: 12px; right: 12px; color: var(--muted); font-size: 12px; }
-.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 16px 0; }
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 16px 0; }
 @media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 600px) { .stats { grid-template-columns: repeat(2, 1fr); } }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
@@ -155,6 +155,23 @@ details summary { cursor: pointer; color: var(--muted); margin: 4px 0 12px; }
 .guide li { margin-bottom: 6px; }
 .guide li.sub { list-style: none; color: var(--muted); margin: 4px 0 0; }
 .guide .chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--border); }
+.chips { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.chips button { padding: 4px 12px; border-radius: 999px; font-size: 13px; }
+.chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.totals { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.totals th { text-align: right; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 0 6px; }
+.totals th:first-child, .totals td:first-child { text-align: left; }
+.totals td { text-align: right; padding: 5px 0 5px 6px; border-top: 1px solid var(--border); white-space: nowrap; font-size: 13px; }
+.records { display: flex; gap: 16px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.records b { color: var(--text); font-size: 14px; display: block; }
+.sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px 16px; }
+.sgrid .k { color: var(--muted); font-size: 12px; }
+.sgrid .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inline { display: flex; align-items: center; gap: 8px; }
+.inline input[type=range] { flex: 1; }
+.mini-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; color: var(--muted); font-size: 13px; cursor: pointer; }
+.mini-check input { accent-color: var(--accent); }
+.plate-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -2px 0 12px 26px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--danger); color: #fff;
   padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
 .setup ol { padding-left: 20px; margin: 0 0 14px; }
@@ -202,6 +219,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </div>
         <div id="needsSetup" class="hidden muted" style="padding:8px 0">Finish the setup above first.</div>
         <div id="actWrap" class="hidden">
+          <div class="chips" id="sportChips">
+            <button data-v="ride" class="on">Rides</button>
+            <button data-v="run">Runs</button>
+            <button data-v="other">Hikes &amp; other</button>
+            <button data-v="all">All</button>
+          </div>
           <div class="list" id="acts"></div>
           <button class="wide" id="more" style="margin-top:8px">Load more</button>
         </div>
@@ -213,6 +236,19 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </label>
         <p class="muted" style="margin-bottom:0">Strava → activity → ⋯ → Export GPX also works.</p>
       </div>
+    </div>
+
+    <div class="card hidden" id="totalsCard">
+      <h2 style="justify-content:space-between">Your Strava stats
+        <span class="chips" id="totalsChips" style="margin:0;text-transform:none;letter-spacing:0">
+          <button data-v="ride" class="on">Ride</button><button data-v="run">Run</button>
+        </span>
+      </h2>
+      <table class="totals">
+        <thead><tr><th></th><th>Activities</th><th>Distance</th><th>Elevation</th><th>Time</th></tr></thead>
+        <tbody id="totalsBody"></tbody>
+      </table>
+      <div class="records" id="records"></div>
     </div>
 
     <div class="card">
@@ -251,9 +287,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <input type="range" id="size" min="50" max="170" step="5" value="170">
       </div>
       <div class="field">
-        <label for="exaggeration">Vertical exaggeration <output data-for="exaggeration" data-unit="×"></output></label>
-        <input type="range" id="exaggeration" min="0.5" max="6" step="0.1" value="1.5">
-        <div class="hint">Use 3–4× for flat rides.</div>
+        <label for="exaggeration">Vertical exaggeration <output data-for="exaggeration" data-unit="×" id="exagOut"></output></label>
+        <div class="inline">
+          <input type="range" id="exaggeration" min="0.5" max="12" step="0.1" value="1.5">
+          <label class="mini-check"><input type="checkbox" id="exagAuto" checked> Auto</label>
+        </div>
+        <div class="hint">Auto scales the hills to about 12% of the model size, which suits long rides.</div>
       </div>
       <div class="field">
         <div class="lbl">Route</div>
@@ -265,8 +304,24 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
       </div>
       <label class="check" id="labelCheck"><input type="checkbox" id="label"> <span>Name plate<small>Activity name, distance, elevation and date</small></span></label>
       <input type="text" id="label_text" class="hidden" placeholder="Title (defaults to the activity name)" maxlength="60">
+      <div class="plate-stats hidden" id="plateStats">
+        <label class="mini-check"><input type="checkbox" value="distance" checked> Distance</label>
+        <label class="mini-check"><input type="checkbox" value="elevation" checked> Elevation</label>
+        <label class="mini-check"><input type="checkbox" value="time" checked> Moving time</label>
+        <label class="mini-check"><input type="checkbox" value="speed"> Avg speed</label>
+        <label class="mini-check"><input type="checkbox" value="date" checked> Date</label>
+      </div>
       <details>
         <summary>Advanced</summary>
+        <div class="field">
+          <div class="lbl">Sea</div>
+          <div class="seg" id="waterSeg">
+            <button data-v="auto" class="on">Auto</button>
+            <button data-v="on">Flatten</button>
+            <button data-v="off">Off</button>
+          </div>
+          <div class="hint">Flattens the sea at the base and lifts the land, so coasts and islands read clearly.</div>
+        </div>
         <div class="field">
           <label for="base">Base thickness <output data-for="base" data-unit=" mm"></output></label>
           <input type="range" id="base" min="1" max="10" step="0.2" value="3">
@@ -308,7 +363,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         </div>
         <div class="hint" id="colorHint">Filament changes at set layers. Works with AMS lite or with manual swaps on a single spool.</div>
       </div>
-      <label class="check"><input type="checkbox" id="base_color"> <span>Base in its own colour<small>Makes name plate text and the terrain stand out</small></span></label>
+      <label class="check"><input type="checkbox" id="base_color"> <span>Base &amp; sea in own colour<small>One filament change: blue sea or a dark base under the land and text</small></span></label>
       <label class="check"><input type="checkbox" id="separate_route"> <span>Route as a separate part<small>Its own filament in the .3mf (needs AMS lite / AMS)</small></span></label>
       <div class="swatches" id="swatches"></div>
     </div>
@@ -339,6 +394,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
       <div class="stats">
         <div class="stat"><div class="k">Size</div><div class="v" id="sSize"></div></div>
         <div class="stat"><div class="k">Height</div><div class="v" id="sHeight"></div></div>
+        <div class="stat"><div class="k">Exaggeration</div><div class="v" id="sExag"></div></div>
         <div class="stat"><div class="k">Elevation</div><div class="v" id="sElev"></div></div>
         <div class="stat"><div class="k">Scale</div><div class="v" id="sScale"></div></div>
         <div class="stat"><div class="k">Filament</div><div class="v" id="sFil"></div></div>
@@ -350,6 +406,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <a class="btn" id="dlTerrain">Terrain STL</a>
         <a class="btn" id="dlRoute">Route STL</a>
         <a class="btn" id="dlPreview">Preview PNG</a>
+      </div>
+      <div class="card hidden" id="rideCard">
+        <h2 id="rideTitle">Activity stats</h2>
+        <div class="sgrid" id="rideStats"></div>
       </div>
       <div class="card guide">
         <h2>How to print</h2>
@@ -368,9 +428,18 @@ const PALETTES = {
   3: ["#4f7942", "#a68a64", "#f2efe6"],
   4: ["#3d6b35", "#7f9b4f", "#a68a64", "#f2efe6"],
 };
-const BASE_DEFAULT = "#2f2f2d", ROUTE_DEFAULT = "#fc4c02";
+const BASE_DEFAULT = "#2f2f2d", SEA_DEFAULT = "#2f6fb0", ROUTE_DEFAULT = "#fc4c02";
 const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised", shape: "rectangle",
-                colors: 1, printers: [], swatch: {}, last: null };
+                colors: 1, printers: [], swatch: {}, last: null, water: "auto", sport: "ride", acts: [],
+                totals: null, totalsSport: "ride" };
+const RUN_TYPES = new Set(["Run", "TrailRun", "VirtualRun"]);
+const sportGroup = (a) => a.is_ride ? "ride" : RUN_TYPES.has(a.type) ? "run" : "other";
+function fmtDur(s) {
+  if (!s) return "";
+  const m = Math.round(s / 60), h = Math.floor(m / 60);
+  return h ? `${h}h ${String(m % 60).padStart(2, "0")}m` : `${m} min`;
+}
+const fmtNum = (n, d = 0) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
 
 function toast(msg) {
   const t = $("toast"); t.textContent = msg; t.style.display = "block";
@@ -401,6 +470,7 @@ async function loadStatus() {
     out.onclick = async () => { await api("/api/logout", { method: "POST" }); location.reload(); };
     who.append(out);
     loadActivities(1);
+    loadTotals();
   }
   if (!s.configured) { state.source = "gpx"; }
   setSource(state.source);
@@ -464,27 +534,80 @@ async function loadActivities(page) {
   try {
     const acts = await api(`/api/activities?page=${page}`);
     state.page = page;
-    const list = $("acts");
-    if (page === 1) list.innerHTML = "";
-    for (const a of acts) {
-      const el = document.createElement("button"); el.className = "act";
-      const c = document.createElement("canvas");
-      const body = document.createElement("div");
-      const name = document.createElement("div"); name.className = "name"; name.textContent = a.name;
-      const meta = document.createElement("div"); meta.className = "meta";
-      meta.textContent = `${a.date} · ${a.type} · ${a.distance_km} km · ${a.elevation_m} m ↑` + (a.polyline ? "" : " · no GPS");
-      body.append(name, meta); el.append(c, body); list.append(el);
-      if (a.polyline) drawRoute(c, a.polyline); else el.disabled = true;
-      el.onclick = () => {
-        list.querySelectorAll(".act.sel").forEach(x => x.classList.remove("sel"));
-        el.classList.add("sel"); state.activity = a; updateBuild();
-      };
-    }
-    if (page === 1 && !acts.length) list.innerHTML = '<p class="muted">No activities found.</p>';
+    state.acts = page === 1 ? acts : state.acts.concat(acts);
+    renderActivities();
     btn.classList.toggle("hidden", acts.length < 30);
   } catch (e) { toast(e.message); }
   btn.disabled = false; btn.textContent = "Load more";
 }
+function renderActivities() {
+  const list = $("acts"); list.innerHTML = "";
+  const shown = state.acts.filter(a => state.sport === "all" || sportGroup(a) === state.sport);
+  for (const a of shown) {
+    const el = document.createElement("button"); el.className = "act";
+    if (state.activity && state.activity.id === a.id) el.classList.add("sel");
+    const c = document.createElement("canvas");
+    const body = document.createElement("div");
+    const name = document.createElement("div"); name.className = "name"; name.textContent = a.name;
+    const meta = document.createElement("div"); meta.className = "meta";
+    const bits = [a.date, `${a.distance_km} km`];
+    if (a.moving_time_s) bits.push(fmtDur(a.moving_time_s));
+    if (a.is_ride && a.avg_speed_kmh) bits.push(`${a.avg_speed_kmh} km/h`);
+    bits.push(`${fmtNum(a.elevation_m)} m ↑`);
+    if (!a.polyline) bits.push("no GPS");
+    if (state.sport === "all" || state.sport === "other") bits.splice(1, 0, a.type);
+    meta.textContent = bits.join(" · ");
+    body.append(name, meta); el.append(c, body); list.append(el);
+    if (a.polyline) drawRoute(c, a.polyline); else el.disabled = true;
+    el.onclick = () => {
+      list.querySelectorAll(".act.sel").forEach(x => x.classList.remove("sel"));
+      el.classList.add("sel"); state.activity = a; updateBuild();
+    };
+  }
+  if (!shown.length) {
+    const p = document.createElement("p"); p.className = "muted";
+    p.textContent = state.acts.length ? "None in the loaded activities. Try Load more or another filter." : "No activities found.";
+    list.append(p);
+  }
+}
+document.querySelectorAll("#sportChips button").forEach(b => (b.onclick = () => {
+  state.sport = b.dataset.v;
+  document.querySelectorAll("#sportChips button").forEach(x => x.classList.toggle("on", x === b));
+  renderActivities(); saveSettings();
+}));
+
+// ---------- Athlete totals ----------
+async function loadTotals() {
+  try {
+    state.totals = await api("/api/athlete-stats");
+    renderTotals();
+    $("totalsCard").classList.remove("hidden");
+  } catch (e) { /* stats are optional; the activity list still works */ }
+}
+function renderTotals() {
+  const t = state.totals; if (!t) return;
+  const rows = [["4 weeks", "recent"], ["This year", "ytd"], ["All time", "all"]];
+  $("totalsBody").replaceChildren(...rows.map(([label, key]) => {
+    const r = t[state.totalsSport][key], tr = document.createElement("tr");
+    const hours = r.moving_time_s >= 360000 ? `${fmtNum(r.moving_time_s / 3600)} h` : fmtDur(r.moving_time_s) || "–";
+    for (const v of [label, fmtNum(r.count), `${fmtNum(r.distance_km)} km`, `${fmtNum(r.elevation_m)} m`, hours]) {
+      tr.append(Object.assign(document.createElement("td"), { textContent: v }));
+    }
+    return tr;
+  }));
+  const rec = $("records"); rec.innerHTML = "";
+  if (state.totalsSport === "ride") {
+    for (const [k, v] of [["Longest ride", `${fmtNum(t.biggest_ride_km, 1)} km`], ["Biggest climb", `${fmtNum(t.biggest_climb_m)} m`]]) {
+      const d = document.createElement("div"); const b = document.createElement("b"); b.textContent = v;
+      d.append(b, document.createTextNode(k)); rec.append(d);
+    }
+  }
+}
+document.querySelectorAll("#totalsChips button").forEach(b => (b.onclick = () => {
+  state.totalsSport = b.dataset.v;
+  document.querySelectorAll("#totalsChips button").forEach(x => x.classList.toggle("on", x === b));
+  renderTotals();
+}));
 $("more").onclick = () => loadActivities(state.page + 1);
 
 // ---------- GPX upload ----------
@@ -539,11 +662,21 @@ function setSeg(id, key, v) {
 seg("routeSeg", "route");
 seg("shapeSeg", "shape", updateShapeUi);
 seg("colorSeg", "colors", renderSwatches);
+seg("waterSeg", "water");
+function updateExag() {
+  const auto = $("exagAuto").checked;
+  $("exaggeration").disabled = auto;
+  $("exagOut").textContent = auto ? (state.last ? `Auto (${state.last.info.exaggeration}×)` : "Auto") : `${$("exaggeration").value}×`;
+}
+$("exagAuto").onchange = () => { updateExag(); saveSettings(); };
+const plateFields = () => [...document.querySelectorAll("#plateStats input:checked")].map(i => i.value);
+document.querySelectorAll("#plateStats input").forEach(i => (i.onchange = saveSettings));
 function updateShapeUi() {
   const radial = state.shape === "circle" || state.shape === "hexagon";
   $("labelCheck").classList.toggle("off", radial);
   $("labelCheck").title = radial ? "Name plates are available for rectangle and square shapes" : "";
   $("label_text").classList.toggle("hidden", radial || !$("label").checked);
+  $("plateStats").classList.toggle("hidden", radial || !$("label").checked);
 }
 function updateColorHint() {
   const p = currentPrinter();
@@ -553,7 +686,7 @@ function updateColorHint() {
 function bandColors() {
   // Colours in print order (bottom first): optional base, then the bands.
   const out = [];
-  if ($("base_color").checked) out.push(state.swatch.base || BASE_DEFAULT);
+  if ($("base_color").checked) out.push(state.swatch.base || (state.last && state.last.info.water ? SEA_DEFAULT : BASE_DEFAULT));
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => out.push(state.swatch[`b${state.colors}_${i}`] || c));
   else if (out.length) out.push(state.swatch.solid || "#7d9a6a");
   return out;
@@ -566,7 +699,7 @@ function renderSwatches() {
     i.oninput = () => { state.swatch[key] = i.value; saveSettings(); viewer.recolor(); };
     w.append(i, document.createTextNode(label)); box.append(w);
   };
-  if ($("base_color").checked) add("base", "Base", BASE_DEFAULT);
+  if ($("base_color").checked) add("base", "Base / sea", state.last && state.last.info.water ? SEA_DEFAULT : BASE_DEFAULT);
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
   else if ($("base_color").checked) add("solid", "Terrain", "#7d9a6a");
   if ($("separate_route").checked && state.route !== "none") add("route", "Route", ROUTE_DEFAULT);
@@ -574,7 +707,8 @@ function renderSwatches() {
 }
 function saveSettings() {
   const s = { route: state.route, shape: state.shape, colors: state.colors, swatch: state.swatch,
-              printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value };
+              printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value,
+              water: state.water, exag_auto: $("exagAuto").checked, plate: plateFields(), sport: state.sport };
   for (const k of ["label", "base_color", "separate_route"]) s[k] = $(k).checked;
   for (const k in DEFAULTS) s[k] = $(k).value;
   store("strava3d-settings-v2", s);
@@ -589,9 +723,16 @@ function applySettings(s) {
   setSeg("routeSeg", "route", s.route || "raised");
   setSeg("shapeSeg", "shape", s.shape || "rectangle");
   setSeg("colorSeg", "colors", s.colors || 1);
-  syncOutputs(); updateShapeUi(); renderSwatches();
+  setSeg("waterSeg", "water", s.water || "auto");
+  $("exagAuto").checked = s.exag_auto !== false;
+  if (s.plate) document.querySelectorAll("#plateStats input").forEach(i => (i.checked = s.plate.includes(i.value)));
+  if (s.sport) {
+    state.sport = s.sport;
+    document.querySelectorAll("#sportChips button").forEach(x => x.classList.toggle("on", x.dataset.v === s.sport));
+  }
+  syncOutputs(); updateShapeUi(); renderSwatches(); updateExag();
 }
-document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); saveSettings(); }));
+document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); updateExag(); saveSettings(); }));
 $("label").onchange = () => { updateShapeUi(); saveSettings(); };
 $("label_text").oninput = saveSettings;
 $("base_color").onchange = $("separate_route").onchange = () => { renderSwatches(); saveSettings(); };
@@ -602,6 +743,9 @@ $("build").onclick = async () => {
   const fd = new FormData();
   for (const k in DEFAULTS) fd.append(k, $(k).value);
   fd.append("route", state.route);
+  fd.set("exaggeration", $("exagAuto").checked ? "auto" : $("exaggeration").value);
+  fd.append("water", state.water);
+  fd.append("label_stats", plateFields().join(","));
   fd.append("shape", state.shape);
   fd.append("colors", state.colors);
   fd.append("printer", $("printer").value);
@@ -629,6 +773,9 @@ async function showResult(r) {
   $("sElev").textContent = `${Math.round(i.elevation_range_m[0])}–${Math.round(i.elevation_range_m[1])} m`;
   $("sScale").textContent = i.scale;
   $("sFil").textContent = `~${i.filament_g} g`;
+  $("sExag").textContent = `${i.exaggeration}×`;
+  updateExag(); renderSwatches();
+  renderRideStats(r);
   const sizeStat = $("sSize").parentElement;
   sizeStat.classList.toggle("good", i.fits); sizeStat.classList.toggle("bad", !i.fits);
   sizeStat.title = i.fits ? `Fits the ${i.printer.name}` : `Too big for the ${i.printer.name}`;
@@ -667,6 +814,38 @@ async function showResult(r) {
   viewer.load(terrain, route, i);
   for (const id of ["vtools", "vhint", "vlabel"]) $(id).classList.remove("hidden");
   $("empty").classList.add("hidden");
+}
+
+function renderRideStats(r) {
+  const st = r.stats || {};
+  const items = [
+    ["Distance", st.distance_km && `${fmtNum(st.distance_km, 1)} km`],
+    ["Moving time", fmtDur(st.moving_time_s)],
+    ["Elapsed time", st.elapsed_time_s && st.elapsed_time_s !== st.moving_time_s && fmtDur(st.elapsed_time_s)],
+    ["Avg speed", st.avg_speed_kmh && `${st.avg_speed_kmh} km/h`],
+    ["Max speed", st.max_speed_kmh && `${st.max_speed_kmh} km/h`],
+    ["Elevation gain", st.elevation_gain_m && `${fmtNum(st.elevation_gain_m)} m`],
+    ["Highest point", st.elev_high_m != null && `${fmtNum(st.elev_high_m)} m`],
+    ["Avg power", st.avg_watts && `${Math.round(st.avg_watts)} W`],
+    ["Weighted power", st.weighted_watts && `${Math.round(st.weighted_watts)} W`],
+    ["Energy", st.kilojoules && `${fmtNum(st.kilojoules)} kJ`],
+    ["Avg heart rate", st.avg_hr && `${Math.round(st.avg_hr)} bpm`],
+    ["Max heart rate", st.max_hr && `${Math.round(st.max_hr)} bpm`],
+    ["Cadence", st.avg_cadence && `${Math.round(st.avg_cadence)} rpm`],
+    ["Calories", st.calories && fmtNum(st.calories)],
+    ["Kudos", st.kudos != null && fmtNum(st.kudos)],
+    ["PRs", st.prs && fmtNum(st.prs)],
+    ["Achievements", st.achievements && fmtNum(st.achievements)],
+    ["Device", st.device],
+  ].filter(([, v]) => v);
+  $("rideCard").classList.toggle("hidden", !items.length);
+  $("rideTitle").textContent = st.sport ? `${st.sport.replace(/([a-z])([A-Z])/g, "$1 $2")} stats` : "Activity stats";
+  $("rideStats").replaceChildren(...items.map(([k, v]) => {
+    const d = document.createElement("div");
+    d.append(Object.assign(document.createElement("div"), { className: "k", textContent: k }),
+             Object.assign(document.createElement("div"), { className: "v", textContent: v }));
+    return d;
+  }));
 }
 
 // ---------- WebGL STL viewer ----------

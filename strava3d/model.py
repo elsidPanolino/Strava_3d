@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .elevation import TileFetcher, elevation_grid
-from .geo import BBox, project, track_length_km
+from .geo import BBox, project
 from .label import text_mask
 from .mesh import Mesh, heightmap_solid, hexahedron, radial_solid
 from .printers import DEFAULT_PRINTER, PRINTERS, layer_number, snap
@@ -25,7 +25,11 @@ BAND_FRACTIONS = {2: [0.55], 3: [0.35, 0.7], 4: [0.25, 0.5, 0.75]}
 class ModelParams:
     size_mm: float | None = None  # longest side of the print; None = fit the printer
     cell_mm: float = 0.5  # horizontal resolution of the terrain mesh
-    z_exaggeration: float = 1.5  # vertical exaggeration relative to true scale
+    z_exaggeration: float | None = None  # vertical exaggeration; None = auto (see target_relief)
+    target_relief_frac: float = 0.12  # auto exaggeration aims for relief = this x model size
+    max_auto_exaggeration: float = 12.0
+    water: str = "auto"  # auto | on | off: flatten the sea (elevation <= 0) and lift the land
+    sea_level_m: float = 0.0
     base_mm: float = 3.0  # thickness of the solid base under the lowest point
     padding: float = 0.1  # extra terrain around the route, as fraction of its size
     shape: str = "rectangle"  # rectangle | square | circle | hexagon
@@ -55,6 +59,7 @@ class TerrainModel:
     dy: float
     shape_mask: np.ndarray | None = None  # 1 inside the printed outline (radial shapes)
     info: dict = field(default_factory=dict)
+    sea_mask: np.ndarray | None = None
 
 
 def _hex_norm(x, y):
@@ -146,9 +151,34 @@ def build_model(
         else:
             shape_mask = _hex_norm(gx, gy) <= r_mm * np.cos(np.pi / 6) + dx
     inside = elev[shape_mask] if shape_mask is not None else elev
-    z_low = inside.min()
-    z = base_mm + (elev - z_low) * scale * p.z_exaggeration
-    z = np.maximum(z, base_mm)
+    if p.water not in ("auto", "on", "off"):
+        raise ValueError("water must be auto, on or off")
+    sea = elev <= p.sea_level_m
+    sea_fraction = float((inside <= p.sea_level_m).mean())
+    water = p.water == "on" or (p.water == "auto" and sea_fraction >= 0.02)
+    if water and sea_fraction < 1.0:
+        # Sea becomes a flat surface at the base; land starts a few layers higher so a
+        # single filament change at the base top separates sea and land colours.
+        ref = p.sea_level_m
+        lift = snap(0.6, layer)
+        land = inside[inside > ref]
+    else:
+        water, ref, lift, land = False, float(inside.min()), 0.0, inside
+    relief_m = float(land.max() - ref) if land.size else 0.0
+    if p.z_exaggeration:
+        exaggeration = p.z_exaggeration
+    else:
+        target = p.target_relief_frac * size
+        exaggeration = float(np.clip(target / max(relief_m * scale, 1e-6), 1.0, p.max_auto_exaggeration))
+        exaggeration = round(exaggeration, 1)
+    if water:
+        # Ramp the land up over its first 3 m so coastlines follow the true contour
+        # instead of stair-stepping along grid cells.
+        coast = np.clip((elev - ref) / 3.0, 0, 1)
+        z = base_mm + lift * coast + np.maximum(elev - ref, 0) * scale * exaggeration
+    else:
+        z = base_mm + (elev - ref) * scale * exaggeration
+        z = np.maximum(z, base_mm)
 
     mask = route_mask(route_xy, nx, ny, dx, dy, route_w)
     terrain_z = z.copy()
@@ -170,6 +200,7 @@ def build_model(
         strip = base_mm + text_h * text
         terrain_z = np.vstack([strip, terrain_z])
         mask = np.vstack([np.zeros((rows, nx)), mask])
+        sea = np.vstack([np.zeros((rows, nx), bool), sea])
         shift = rows * dy
         route_xy = route_xy + [0, shift]
         if route_mesh is not None:
@@ -200,13 +231,18 @@ def build_model(
         )
     if top_z > printer.bed_z:
         warnings.append(f"Model is {top_z:.0f} mm tall; the {printer.name} prints up to {printer.bed_z:.0f} mm.")
+    if shape == "rectangle" and min(footprint) / max(footprint) < 0.6:
+        warnings.append(
+            "Long, narrow route: the Square shape shows more of the surrounding area at the same "
+            "scale, uses the bed better and gives the name plate more room."
+        )
     relief = top_z - base_mm
     if relief < 3:
-        warnings.append("Very little relief. Try a higher vertical exaggeration (3-5x for flat areas).")
+        warnings.append("Very little relief. Try a higher vertical exaggeration, or Auto.")
 
     # --- Colour bands (filament changes by height) -----------------------------------------
     terrain_top = float(z[shape_mask].max() if shape_mask is not None else z.max())
-    bands = colour_bands(p.colors, p.base_color, base_mm, terrain_top, layer, printer)
+    bands = colour_bands(p.colors, p.base_color, base_mm, terrain_top, layer, printer, base_mm + lift)
 
     area = _surface_area(terrain) + (_surface_area(route_mesh) if route_mesh is not None else 0)
     volume = terrain.volume() + (route_mesh.volume() if route_mesh is not None else 0)
@@ -215,28 +251,33 @@ def build_model(
         "grid": (nx, ny),
         "shape": shape,
         "size_mm": (round(float(footprint[0]), 1), round(float(footprint[1]), 1), round(top_z, 1)),
-        "elevation_range_m": (round(float(inside.min()), 1), round(float(inside.max()), 1)),
+        "elevation_range_m": (round(max(float(inside.min()), ref) if water else float(inside.min()), 1),
+                              round(float(inside.max()), 1)),
         "scale": f"1:{round(1000 / scale):,}",
         "printer": printer.to_dict(),
         "layer_mm": layer,
-        "fits": fits and top_z <= printer.bed_z,
+        "fits": bool(fits and top_z <= printer.bed_z),
         "base_mm": base_mm,
         "route_height_mm": route_h,
         "route_width_mm": route_w,
         "label_mm": round(shift, 2) if label else 0,
         "bands": bands,
+        "exaggeration": float(exaggeration),
+        "water": bool(water),
+        "sea_fraction": round(sea_fraction, 3),
         "filament_g": _filament_grams(volume, area),
         "warnings": warnings,
     }
-    return TerrainModel(terrain, route_mesh, terrain_z, mask, route_xy, dx, dy, shape_mask, info)
+    return TerrainModel(terrain, route_mesh, terrain_z, mask, route_xy, dx, dy, shape_mask, info,
+                        sea if water else None)
 
 
 def _fits(footprint, printer) -> bool:
     w, h = footprint
     m = 2 * printer.margin
-    return (w <= printer.bed_x - m and h <= printer.bed_y - m) or (
+    return bool((w <= printer.bed_x - m and h <= printer.bed_y - m) or (
         w <= printer.bed_y - m and h <= printer.bed_x - m
-    )
+    ))
 
 
 def _surface_area(mesh: Mesh) -> float:
@@ -250,10 +291,16 @@ def _filament_grams(volume_mm3: float, area_mm2: float, infill=0.15, shell_mm=0.
     return int(round((shell + (volume_mm3 - shell) * infill) * density / 1000))
 
 
-def colour_bands(colors: int, base_color: bool, base_mm: float, top_mm: float, layer: float, printer) -> list[dict]:
-    """Filament-change points: the first layer printed in each new colour."""
+def colour_bands(colors: int, base_color: bool, base_mm: float, top_mm: float, layer: float, printer,
+                 land_mm: float | None = None) -> list[dict]:
+    """Filament-change points: the first layer printed in each new colour.
+
+    `base_color` adds a change at the top of the base (also the sea surface); the
+    height bands split the land between `land_mm` (default: base) and `top_mm`.
+    """
     fractions = BAND_FRACTIONS.get(colors, [])
-    cuts = [base_mm + f * (top_mm - base_mm) for f in fractions]
+    lo = base_mm if land_mm is None else land_mm
+    cuts = [lo + f * (top_mm - lo) for f in fractions]
     if base_color:
         cuts = [base_mm] + cuts
     out = []
@@ -350,6 +397,9 @@ def render_preview(model: TerrainModel, path, max_px: int = 1000, band_colors=No
     rel = (z - z.min()) / max(np.ptp(z), 1e-9)
     base = np.dstack([0.55 + 0.35 * rel, 0.62 + 0.25 * rel, 0.50 + 0.30 * rel])
     rgb = base * (0.35 + 0.65 * shade[..., None])
+    if model.sea_mask is not None:
+        sea = model.sea_mask[..., None]
+        rgb = rgb * (1 - sea) + np.array([0.36, 0.58, 0.80]) * (0.85 + 0.15 * shade[..., None]) * sea
     orange = np.array([0.99, 0.32, 0.0])
     m = model.route_mask[..., None]
     rgb = rgb * (1 - m) + orange * m
@@ -362,18 +412,6 @@ def render_preview(model: TerrainModel, path, max_px: int = 1000, band_colors=No
     factor = max_px / max(img.size)
     img = img.resize((round(img.width * factor), round(img.height * factor)), Image.LANCZOS)
     img.save(path)
-
-
-def default_label(name: str, points, distance_km: float | None = None, gain_m: float | None = None,
-                  date: str = "") -> list[str]:
-    """[title, 'distance · elevation gain · date'] for the name plate."""
-    km = distance_km if distance_km is not None else track_length_km(points)
-    stats = [f"{km:.1f} km"]
-    if gain_m:
-        stats.append(f"{gain_m:,.0f} m elevation gain")
-    if date:
-        stats.append(date)
-    return [name, "  ·  ".join(stats)]
 
 
 def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetcher=None) -> dict:

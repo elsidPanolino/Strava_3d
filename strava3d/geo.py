@@ -38,15 +38,42 @@ def decode_polyline(encoded: str, precision: int = 5) -> list[tuple[float, float
 
 def read_gpx(path: str | Path) -> list[tuple[float, float]]:
     """Read all track (or route) points from a GPX file as [(lat, lon), ...]."""
+    return read_gpx_track(path)["points"]
+
+
+def read_gpx_track(path: str | Path) -> dict:
+    """Track points plus optional per-point elevation (m) and time (datetime) lists."""
+    from datetime import datetime
+
     root = ET.parse(path).getroot()
-    points = [
-        (float(el.get("lat")), float(el.get("lon")))
-        for el in root.iter()
-        if el.tag.split("}")[-1] in ("trkpt", "rtept")
-    ]
+    points, ele, times = [], [], []
+    for el in root.iter():
+        if el.tag.split("}")[-1] not in ("trkpt", "rtept"):
+            continue
+        points.append((float(el.get("lat")), float(el.get("lon"))))
+        e = t = None
+        for child in el:
+            tag = child.tag.split("}")[-1]
+            if tag == "ele" and child.text:
+                e = float(child.text)
+            elif tag == "time" and child.text:
+                try:
+                    t = datetime.fromisoformat(child.text.strip().replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+        ele.append(e)
+        times.append(t)
     if not points:
         raise ValueError(f"No track points found in {path}")
-    return points
+    # Prefer the track/route name over the file's metadata name.
+    names = {}
+    for parent in root.iter():
+        kind = parent.tag.split("}")[-1]
+        for child in parent:
+            if child.tag.split("}")[-1] == "name" and child.text:
+                names.setdefault(kind, child.text.strip())
+    name = names.get("trk") or names.get("rte") or names.get("metadata")
+    return {"points": points, "ele": ele, "times": times, "name": name}
 
 
 @dataclass

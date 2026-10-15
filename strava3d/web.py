@@ -10,9 +10,10 @@ from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request, send_from_directory
 
-from .geo import read_gpx, slug
+from .geo import read_gpx_track, slug
 from .guide import print_guide
-from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export, default_label
+from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export
+from .stats import DEFAULT_LABEL_FIELDS, RIDE_TYPES, gpx_stats, label_lines, strava_stats
 from .printers import DEFAULT_PRINTER, PRINTERS
 from .strava import Credentials, StravaClient, StravaError, default_token_path
 
@@ -22,7 +23,6 @@ STATIC_DIR = Path(__file__).parent / "static"
 PARAM_FIELDS = {
     "size": ("size_mm", float),
     "resolution": ("cell_mm", float),
-    "exaggeration": ("z_exaggeration", float),
     "base": ("base_mm", float),
     "padding": ("padding", float),
     "label_mm": ("label_mm", float),
@@ -60,6 +60,15 @@ def parse_params(form) -> ModelParams:
         raise ValueError("colors must be 1-4")
     params.base_color = form.get("base_color") in ("1", "true", "on")
     params.label = form.get("label") in ("1", "true", "on")
+    exag = (form.get("exaggeration") or "auto").strip().lower()
+    if exag != "auto":
+        params.z_exaggeration = float(exag)
+        if not 0.1 <= params.z_exaggeration <= 20:
+            raise ValueError("exaggeration must be between 0.1 and 20")
+    water = form.get("water") or "auto"
+    if water not in ("auto", "on", "off"):
+        raise ValueError("water must be auto, on or off")
+    params.water = water
     for field, (attr, typ) in PARAM_FIELDS.items():
         if form.get(field) not in (None, ""):
             value = typ(form[field])
@@ -164,6 +173,9 @@ def create_app(
                     "type": a.get("sport_type") or a.get("type", ""),
                     "distance_km": round(a.get("distance", 0) / 1000, 1),
                     "elevation_m": round(a.get("total_elevation_gain", 0)),
+                    "moving_time_s": a.get("moving_time", 0),
+                    "avg_speed_kmh": round((a.get("average_speed") or 0) * 3.6, 1),
+                    "is_ride": (a.get("sport_type") or a.get("type")) in RIDE_TYPES,
                     "polyline": (a.get("map") or {}).get("summary_polyline") or "",
                 }
                 for a in acts
@@ -175,12 +187,14 @@ def create_app(
         params = parse_params(request.form)
         upload = request.files.get("gpx")
         if upload and upload.filename:
-            with tempfile.NamedTemporaryFile(suffix=".gpx") as tmp:
-                upload.save(tmp.name)
-                points = read_gpx(tmp.name)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "upload.gpx"
+                upload.save(path)
+                track = read_gpx_track(path)
+            points = track["points"]
             name = slug(Path(upload.filename).stem)
             title = Path(upload.filename).stem
-            label = default_label(title, points)
+            stats = gpx_stats(track)
         elif request.form.get("activity_id"):
             c = client()
             activity_id = int(request.form["activity_id"])
@@ -189,19 +203,35 @@ def create_app(
             title = activity.get("name", str(activity_id))
             date = activity.get("start_date_local", "")[:10]
             name = f"{date}-{slug(title)}"
-            label = default_label(
-                title, points, activity.get("distance", 0) / 1000, activity.get("total_elevation_gain"), date
-            )
+            stats = strava_stats(activity)
         else:
             raise ValueError("Pick a Strava activity or upload a GPX file.")
 
-        if request.form.get("label_text", "").strip():
-            label[0] = request.form["label_text"].strip()[:60]
-        params.label_lines = label
+        fields = [f for f in request.form.get("label_stats", ",".join(DEFAULT_LABEL_FIELDS)).split(",") if f]
+        plate_title = request.form.get("label_text", "").strip()[:60] or title
+        params.label_lines = label_lines(plate_title, stats, fields)
         result = build_and_export(points, name, params, out_dir, fetcher=fetcher)
         files = {k: f"/files/{p.name}" for k, p in result["files"].items()}
         info = result["info"]
-        return jsonify(title=title, files=files, info=info, guide=print_guide(info))
+        return jsonify(title=title, files=files, info=info, guide=print_guide(info), stats=stats)
+
+    @app.get("/api/athlete-stats")
+    def athlete_stats():
+        s = client().athlete_stats()
+        out = {}
+        for sport in ("ride", "run"):
+            out[sport] = {
+                period: {
+                    "count": (s.get(f"{period}_{sport}_totals") or {}).get("count", 0),
+                    "distance_km": round((s.get(f"{period}_{sport}_totals") or {}).get("distance", 0) / 1000),
+                    "elevation_m": round((s.get(f"{period}_{sport}_totals") or {}).get("elevation_gain", 0)),
+                    "moving_time_s": (s.get(f"{period}_{sport}_totals") or {}).get("moving_time", 0),
+                }
+                for period in ("recent", "ytd", "all")
+            }
+        out["biggest_ride_km"] = round((s.get("biggest_ride_distance") or 0) / 1000, 1)
+        out["biggest_climb_m"] = round(s.get("biggest_climb_elevation_gain") or 0)
+        return jsonify(out)
 
     @app.get("/api/printers")
     def printers():

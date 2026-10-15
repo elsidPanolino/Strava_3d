@@ -56,10 +56,22 @@ def print_guide(info: dict) -> list[str]:
         steps.append(f"Colour bands: add a filament change at each layer below. {how}")
         for i, b in enumerate(bands, start=2):
             steps.append(f"    Colour {i}: from layer {b['layer']} (Z {b['top_z']:.2f} mm)")
+        if info.get("route_style") in ("raised", "groove"):
+            steps.append(
+                "With colour bands the route prints in the same colours as the land around it. To make it "
+                "stand out, use \"Route as a separate part\" with AMS lite, or paint it afterwards."
+            )
 
+    if info.get("water") and not bands:
+        steps.append(
+            "Tip: this area has sea. Turn on \"Base & sea in own colour\" (--base-color) to print the sea "
+            "blue with one filament change."
+        )
+    elif info.get("water") and bands[0]["z"] == info["base_mm"]:
+        steps.append("The sea is the flat surface at the base, so it prints in colour 1 with the base.")
     if info.get("label_mm") and not bands:
         steps.append(
-            "Tip: turn on \"Base in its own colour\" to print the name plate text in a contrasting colour."
+            "Tip: turn on \"Base & sea in own colour\" to print the name plate text in a contrasting colour."
         )
     steps.append(f"Estimated filament: about {info['filament_g']} g PLA.")
     return steps

@@ -26,18 +26,18 @@ def bold_font(size: int):
     return ImageFont.load_default(size=size), False
 
 
-def text_mask(lines: list[str], nx: int, ny: int, ss: int = 4, line_ratio=(0.6, 0.4)) -> np.ndarray:
+def text_mask(lines: list[str], nx: int, ny: int, ss: int = 4) -> np.ndarray:
     """Coverage (0..1) of centred text lines on an ny x nx grid (row 0 = bottom).
 
     The first line is the title and gets the larger share of the height.
     """
-    lines = [ln for ln in lines if ln][:2]
+    lines = [ln for ln in lines if ln][:3]
     if not lines:
         return np.zeros((ny, nx))
     W, H = nx * ss, ny * ss
     img = Image.new("L", (W, H), 0)
     draw = ImageDraw.Draw(img)
-    ratios = line_ratio if len(lines) == 2 else (1.0,)
+    ratios = {1: (1.0,), 2: (0.6, 0.4), 3: (0.48, 0.26, 0.26)}[len(lines)]
     pad = 0.08 * H
     avail = H - 2 * pad
     y = pad

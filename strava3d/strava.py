@@ -221,6 +221,12 @@ class StravaClient:
     def athlete(self) -> dict:
         return self._get("/athlete")
 
+    def athlete_stats(self, athlete_id: int | None = None) -> dict:
+        """Totals for rides/runs/swims: recent (4 weeks), year to date and all time."""
+        if athlete_id is None:
+            athlete_id = (self._load_token().get("athlete") or {}).get("id") or self.athlete()["id"]
+        return self._get(f"/athletes/{athlete_id}/stats")
+
     def activities(self, per_page: int = 30, page: int = 1) -> list[dict]:
         return self._get("/athlete/activities", {"per_page": per_page, "page": page})
 

@@ -139,3 +139,31 @@ def test_build_rejects_bad_options(app):
     for bad in ({"printer": "nope"}, {"shape": "star"}, {"colors": "7"}, {"layer": "2"}):
         r = c.post("/api/build", data={"activity_id": "1", **bad})
         assert r.status_code == 400, bad
+
+
+def test_athlete_stats_endpoint(app, monkeypatch):
+    c = app.test_client()
+    c.post("/api/credentials", json={"client_id": "1", "client_secret": "s"})
+    monkeypatch.setattr(StravaClient, "athlete_stats", lambda self, athlete_id=None: {
+        "biggest_ride_distance": 120500.0, "biggest_climb_elevation_gain": 900.0,
+        "ytd_ride_totals": {"count": 10, "distance": 500000.0, "elevation_gain": 4000.0, "moving_time": 72000},
+    })
+    r = c.get("/api/athlete-stats").get_json()
+    assert r["biggest_ride_km"] == 120.5
+    assert r["ride"]["ytd"] == {"count": 10, "distance_km": 500, "elevation_m": 4000, "moving_time_s": 72000}
+    assert r["run"]["all"]["count"] == 0
+
+
+def test_build_returns_ride_stats(app, monkeypatch):
+    c = app.test_client()
+    c.post("/api/credentials", json={"client_id": "1", "client_secret": "s"})
+    monkeypatch.setattr(StravaClient, "activity", lambda self, i: {
+        "name": "Palawan loop", "start_date_local": "2026-09-27T05:30:00Z", "sport_type": "Ride",
+        "distance": 60000, "moving_time": 9000, "average_speed": 6.67, "total_elevation_gain": 700})
+    monkeypatch.setattr(StravaClient, "activity_latlng", lambda self, i: [(9.74, 118.73), (9.8, 118.75), (9.85, 118.7)])
+    r = c.post("/api/build", data={"activity_id": "5", "resolution": "1.5", "label": "1",
+                                   "label_stats": "distance,speed", "exaggeration": "auto", "water": "auto"})
+    body = r.get_json()
+    assert r.status_code == 200, body
+    assert body["stats"]["avg_speed_kmh"] == 24.0 and body["stats"]["distance_km"] == 60.0
+    assert body["info"]["exaggeration"] >= 1

@@ -6,9 +6,10 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-from .geo import read_gpx, slug
+from .geo import read_gpx_track, slug
 from .guide import print_guide
-from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export, default_label
+from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export
+from .stats import DEFAULT_LABEL_FIELDS, LABEL_FIELDS, RIDE_TYPES, fmt_duration, format_stats, gpx_stats, label_lines, strava_stats
 from .printers import DEFAULT_PRINTER, PRINTERS
 from .strava import DEFAULT_PORT, Credentials, StravaClient
 
@@ -27,23 +28,27 @@ def cmd_auth(args) -> None:
 
 def cmd_activities(args) -> None:
     acts = _client().activities(per_page=args.limit, page=args.page)
-    print(f"{'ID':>12}  {'Date':10}  {'Type':12} {'km':>7} {'Elev m':>7}  Name")
+    if args.rides:
+        acts = [a for a in acts if (a.get("sport_type") or a.get("type")) in RIDE_TYPES]
+    print(f"{'ID':>12}  {'Date':10}  {'Type':12} {'km':>7} {'Elev m':>7} {'Time':>8} {'km/h':>6}  Name")
     for a in acts:
         date = a.get("start_date_local", "")[:10]
         km = a.get("distance", 0) / 1000
         gps = "" if (a.get("map") or {}).get("summary_polyline") else "  (no GPS)"
         print(
             f"{a['id']:>12}  {date:10}  {a.get('sport_type', a.get('type', '')):12} "
-            f"{km:7.1f} {a.get('total_elevation_gain', 0):7.0f}  {a.get('name', '')}{gps}"
+            f"{km:7.1f} {a.get('total_elevation_gain', 0):7.0f} {fmt_duration(a.get('moving_time')):>8} "
+            f"{(a.get('average_speed') or 0) * 3.6:6.1f}  {a.get('name', '')}{gps}"
         )
 
 
-def _params(args, label_lines=None) -> ModelParams:
+def _params(args, plate=None) -> ModelParams:
     shape = "square" if args.square and args.shape == "rectangle" else args.shape
     return ModelParams(
         size_mm=args.size,
         cell_mm=args.resolution,
-        z_exaggeration=args.exaggeration,
+        z_exaggeration=None if args.exaggeration == "auto" else float(args.exaggeration),
+        water=args.water,
         base_mm=args.base,
         padding=args.padding,
         shape=shape,
@@ -54,22 +59,23 @@ def _params(args, label_lines=None) -> ModelParams:
         printer=args.printer,
         layer_mm=args.layer,
         label=args.label,
-        label_lines=[args.label_text, label_lines[1]] if args.label_text else (label_lines or []),
+        label_lines=[args.label_text, *plate[1:]] if args.label_text and plate else (plate or []),
         colors=args.colors,
         base_color=args.base_color,
     )
 
 
-def _build_and_save(points, name: str, args, label_lines) -> None:
+def _build_and_save(points, name: str, args, plate) -> None:
     print(f"Building model from {len(points)} GPS points (downloading elevation tiles)...")
-    params = _params(args, label_lines)
+    params = _params(args, plate)
     result = build_and_export(points, name, params, Path(args.out))
     info = result["info"]
     w, h, t = info["size_mm"]
     print(f"Printer: {info['printer']['name']}, {info['layer_mm']} mm layers")
     print(f"Model size: {w} x {h} mm, max height {t} mm  (horizontal scale {info['scale']})")
     lo, hi = info["elevation_range_m"]
-    print(f"Elevation: {lo} m - {hi} m, vertical exaggeration x{args.exaggeration}")
+    sea = f", sea {info['sea_fraction']:.0%} (flattened)" if info["water"] else ""
+    print(f"Elevation: {lo} m - {hi} m, vertical exaggeration x{info['exaggeration']}{sea}")
     print(f"Triangles: {info['triangles']:,}   Filament: ~{info['filament_g']} g PLA (15% infill)")
     for w_ in info["warnings"]:
         print(f"  ! {w_}")
@@ -87,11 +93,10 @@ def cmd_build(args) -> None:
     date = activity.get("start_date_local", "")[:10]
     title = activity.get("name", str(args.activity_id))
     name = args.name or f"{date}-{slug(title)}"
+    stats = strava_stats(activity)
     print(f"Activity: {title} ({date})")
-    label = default_label(
-        title, points, activity.get("distance", 0) / 1000, activity.get("total_elevation_gain"), date
-    )
-    _build_and_save(points, name, args, label)
+    print("  " + format_stats(stats))
+    _build_and_save(points, name, args, label_lines(title, stats, args.label_stats.split(",")))
 
 
 def cmd_latest(args) -> None:
@@ -104,15 +109,32 @@ def cmd_latest(args) -> None:
 
 
 def cmd_gpx(args) -> None:
-    points = read_gpx(args.file)
-    name = args.name or Path(args.file).stem
-    _build_and_save(points, name, args, default_label(Path(args.file).stem, points))
+    track = read_gpx_track(args.file)
+    title = track["name"] or Path(args.file).stem
+    name = args.name or slug(Path(args.file).stem)
+    stats = gpx_stats(track)
+    print(f"Track: {title}")
+    print("  " + format_stats(stats))
+    _build_and_save(track["points"], name, args, label_lines(title, stats, args.label_stats.split(",")))
 
 
 def cmd_ui(args) -> None:
     from .web import serve
 
     serve(port=args.port, out_dir=args.out, open_browser=not args.no_browser)
+
+
+def cmd_stats(args) -> None:
+    s = _client().athlete_stats()
+    kind = {"ride": "ride", "run": "run", "swim": "swim"}[args.sport]
+    print(f"{'':14} {'Count':>6} {'Distance':>11} {'Elevation':>10} {'Moving time':>12}")
+    for label, key in (("Last 4 weeks", "recent"), ("This year", "ytd"), ("All time", "all")):
+        t = s.get(f"{key}_{kind}_totals") or {}
+        print(f"{label:14} {t.get('count', 0):6} {t.get('distance', 0) / 1000:9,.0f} km "
+              f"{t.get('elevation_gain', 0):8,.0f} m {fmt_duration(t.get('moving_time')):>12}")
+    if kind == "ride":
+        print(f"Longest ride: {(s.get('biggest_ride_distance') or 0) / 1000:,.1f} km, "
+              f"biggest climb: {s.get('biggest_climb_elevation_gain') or 0:,.0f} m")
 
 
 def cmd_printers(args) -> None:
@@ -131,7 +153,10 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--size", type=float, help="longest side in mm (default: largest that fits the printer, max 200)")
     g.add_argument("--shape", choices=SHAPES, default="rectangle", help="outline of the model")
     g.add_argument("--resolution", type=float, default=0.5, help="mesh cell size in mm (default 0.5)")
-    g.add_argument("--exaggeration", type=float, default=1.5, help="vertical exaggeration (default 1.5)")
+    g.add_argument("--exaggeration", default="auto",
+                   help="vertical exaggeration, or 'auto' to size the relief to the model (default auto)")
+    g.add_argument("--water", choices=["auto", "on", "off"], default="auto",
+                   help="flatten the sea and lift the land; auto = when the area has sea (default)")
     g.add_argument("--base", type=float, default=3, help="base thickness in mm (default 3)")
     g.add_argument("--padding", type=float, default=0.1, help="terrain margin around route (fraction, default 0.1)")
     g.add_argument("--square", action="store_true", help="same as --shape square")
@@ -145,9 +170,12 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     )
     g.add_argument("--label", action="store_true", help="add a name plate with the activity name and stats")
     g.add_argument("--label-text", help="custom name plate title (default: activity name)")
+    g.add_argument("--label-stats", default=",".join(DEFAULT_LABEL_FIELDS),
+                   help=f"stats on the name plate, comma separated from: {','.join(LABEL_FIELDS)}")
     g.add_argument("--colors", type=int, choices=[1, 2, 3, 4], default=1,
                    help="colour bands by height, using filament changes (default 1)")
-    g.add_argument("--base-color", action="store_true", help="give the base its own colour (one more filament change)")
+    g.add_argument("--base-color", action="store_true",
+                   help="give the base (and sea) its own colour (one more filament change)")
     g.add_argument("--name", help="output file name prefix")
     g.add_argument("-o", "--out", default="output", help="output directory (default ./output)")
 
@@ -166,6 +194,7 @@ def main(argv=None) -> None:
     p = sub.add_parser("activities", help="list your recent activities")
     p.add_argument("-n", "--limit", type=int, default=20)
     p.add_argument("--page", type=int, default=1)
+    p.add_argument("--rides", action="store_true", help="only show rides")
     p.set_defaults(func=cmd_activities)
 
     p = sub.add_parser("build", help="build a model from a Strava activity ID")
@@ -181,6 +210,10 @@ def main(argv=None) -> None:
     p.add_argument("file")
     _add_model_args(p)
     p.set_defaults(func=cmd_gpx)
+
+    p = sub.add_parser("stats", help="your Strava totals (rides by default)")
+    p.add_argument("--sport", choices=["ride", "run", "swim"], default="ride")
+    p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("printers", help="list printer profiles")
     p.set_defaults(func=cmd_printers)

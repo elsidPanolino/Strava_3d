@@ -9,6 +9,11 @@ Tuned for the **Bambu Lab A1 mini** by default (180 mm bed, 0.4 nozzle, AMS lite
 with profiles for other common printers.
 
 **Features**
+- Built for cycling: rides-first activity list with time and speed, full ride stats (power,
+  heart rate, kudos, PRs…), your Strava totals, and ride stats on the name plate
+- Islands and coasts (e.g. Palawan): the sea is flattened at the base and the land lifted, so
+  coastlines and islands read clearly and the sea can print blue with one filament change
+- Auto vertical exaggeration sizes the hills to the model, so long rides at small scale still have relief
 - Printer profiles that size the model to the bed, warn when it won't fit, snap heights to
   whole layers and keep the route at least 3 nozzle widths wide
 - Rectangle, square, circle or hexagon shapes
@@ -55,13 +60,16 @@ This opens <http://localhost:8765> in your browser. There you can:
 1. **Set up**: paste your Strava Client ID and Client Secret (first run only; they're saved in
    `~/.config/strava3d/credentials.json`). If you prefer, put them in `.env` instead.
 2. **Connect with Strava**: log in once. Disconnect from the top-right corner.
-3. **Choose a route**: pick an activity from your list (with route thumbnails), or drop in a GPX file.
+3. **Choose a route**: pick an activity from your list, which opens on **Rides** with distance,
+   time and speed, or drop in a GPX file. The **Your Strava stats** card shows your ride or run
+   totals for the last 4 weeks, this year and all time, plus your longest ride and biggest climb.
 4. **Pick your printer**: the A1 mini is the default. Size limits and layer heights follow the printer.
 5. **Tune it**: shape, size, vertical exaggeration, route style and name plate.
    Under **Colours**, choose height bands, a base colour or a separate route part, and pick
    each colour with the swatches. The 3D preview updates live.
 6. **Build**: rotate and zoom the result on the printer's bed, check the fit and filament
-   estimate, download the `.3mf` (or STLs), and follow the **How to print** steps.
+   estimate, see the activity's full stats, download the `.3mf` (or STLs), and follow the
+   **How to print** steps.
 
 The viewer is plain WebGL with no external scripts, so the UI also works offline
 once elevation tiles are cached.
@@ -81,7 +89,8 @@ A browser window opens. When you approve access, Strava redirects to
 ## Usage
 
 ```bash
-strava3d activities                 # list recent activities with their IDs
+strava3d activities --rides         # list recent rides with their IDs, time and speed
+strava3d stats                      # your ride totals (--sport run|swim for others)
 strava3d build 1234567890           # build a model from one activity
 strava3d latest                     # build from your most recent GPS activity
 strava3d gpx examples/tamalpais-loop.gpx   # build from a GPX file (no Strava needed)
@@ -106,15 +115,17 @@ The command also prints a short guide, including the layers for any filament cha
 | `--layer` | 0.2 | Layer height. Base, route and text heights snap to whole layers. |
 | `--size` | fit printer | Longest side in mm (A1 mini: 170). Capped at 200 by default. |
 | `--shape` | rectangle | `rectangle`, `square`, `circle`, `hexagon` |
-| `--exaggeration` | 1.5 | Vertical exaggeration. Use 3–5 for flat areas. |
+| `--exaggeration` | auto | Vertical exaggeration, or `auto` to make the relief about 12% of the model size |
+| `--water` | auto | `auto`/`on`/`off`: flatten the sea at the base and lift the land |
 | `--route` | raised | `raised`, `groove`, or `none` |
 | `--route-width` | 1.6 | Route line width in mm (at least 3× the nozzle) |
 | `--route-height` | 1.0 | How far the route is raised or grooved, in mm |
 | `--separate-route` | off | Route as its own part / STL (filament 2 in the 3MF) |
 | `--label` | off | Name plate with name, distance, elevation gain and date (rectangle/square) |
 | `--label-text` | activity name | Custom name plate title |
+| `--label-stats` | distance,elevation,time,date | Name plate stats from `distance,elevation,time,speed,date` |
 | `--colors` | 1 | 2–4 colour bands by height, using filament changes |
-| `--base-color` | off | Base and name plate in their own colour (one more filament change) |
+| `--base-color` | off | Base and sea in their own colour (one more filament change) |
 | `--base` | 3 | Base thickness under the lowest point, in mm |
 | `--padding` | 0.1 | Terrain margin around the route (fraction of route size) |
 | `--resolution` | 0.5 | Mesh cell size in mm (smaller gives more detail and bigger files) |
@@ -123,6 +134,12 @@ The command also prints a short guide, including the layers for any filament cha
 ### Examples
 
 ```bash
+# Palawan ride: blue sea, green-brown-white land, ride stats on the plate, square tile
+strava3d build 1234567890 --square --base-color --colors 3 --label --label-stats distance,elevation,time,speed,date
+
+# Try it without Strava, using the included example ride
+strava3d gpx examples/palawan-puerto-princesa-sabang.gpx --square --base-color --colors 3 --label
+
 # A1 mini, 3 colours by height on a dark base, with a name plate
 strava3d build 1234567890 --colors 3 --base-color --label
 
@@ -135,6 +152,23 @@ strava3d build 1234567890 --exaggeration 4
 # Bigger print on an A1
 strava3d build 1234567890 --printer a1 --size 240 --shape circle
 ```
+
+## Coasts and islands (Palawan)
+
+Elevation tiles include the sea floor (down to about −580 m around Palawan). That would
+make the sea look like deep terrain and squash the island. Instead, when at least 2% of the
+area is sea, strava3d:
+
+- flattens everything at or below sea level into a flat surface at the top of the base
+- lifts the land 0.6 mm (3 layers), ramping up over the first 3 m above sea level so
+  coastlines stay smooth
+- with **Base & sea in own colour** (`--base-color`), adds one filament change at the top of
+  the base, so the sea and base print blue and the land in your land colours
+
+Long point-to-point rides (for example, Puerto Princesa → Sabang) come out long and thin.
+Pick the **Square** shape to show more of the island at the same scale and use the whole
+A1 mini bed. Auto exaggeration (about 5× for that ride) keeps the mountains visible at
+1:400,000 scale.
 
 ## Printing tips (Bambu Lab A1 mini)
 
@@ -163,5 +197,7 @@ pytest
 - Elevation data © Mapzen / AWS Terrain Tiles, which include SRTM, GMTED, NED, ETOPO1 and other sources.
   See [attribution](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
 - `examples/tamalpais-loop.gpx` is a synthetic loop on real terrain, used for testing.
+  `examples/palawan-puerto-princesa-sabang.gpx` is an approximate Puerto Princesa → Sabang
+  ride (waypoints along the highway with made-up timing), not a recorded activity.
 - The 3MF has not yet been tested in every slicer version. If parts or filaments don't come through,
   use the STL files.
