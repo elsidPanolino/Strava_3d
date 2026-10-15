@@ -126,6 +126,8 @@ input[type=text], input[type=number] { width: 100%; font: inherit; padding: 9px 
       </div>
       <label class="check"><input type="checkbox" id="floor" checked> <span>Floor<small>The tile drops onto a floor. Untick for an open frame that slips over the tile.</small></span></label>
       <label class="check"><input type="checkbox" id="mount"> <span>Wall mount<small>Two keyholes in the back for hanging on screws (floor becomes 4 mm)</small></span></label>
+      <label class="check"><input type="checkbox" id="vents" checked> <span>Air holes<small>Lets air in and out so the tile slides easily; push it out through the centre hole</small></span></label>
+      <label class="check"><input type="checkbox" id="notches" checked> <span>Finger notches<small>Rounded dips in the side walls to pinch and lift the tile</small></span></label>
     </div>
 
     <div class="card">
@@ -235,7 +237,8 @@ $("build").onclick = async () => {
     model: m ? m.name : "",
     tile_w: $("tile_w").value, tile_d: $("tile_d").value, tile_h: $("tile_h").value,
     wall_mm: $("wall_mm").value, headroom_mm: $("headroom_mm").value, clearance_mm: $("clearance_mm").value,
-    floor: $("floor").checked, mount: $("mount").checked, printer: $("printer").value, band_mm: $("band_mm").value,
+    floor: $("floor").checked, mount: $("mount").checked, vents: $("vents").checked, notches: $("notches").checked,
+    printer: $("printer").value, band_mm: $("band_mm").value,
     title: $("useText").checked ? $("title").value : "", stats: $("useText").checked ? $("stats").value : "",
   };
   $("build").disabled = true; $("busy").classList.add("on");

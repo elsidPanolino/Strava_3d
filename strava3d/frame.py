@@ -36,6 +36,11 @@ class FrameParams:
     screw_head_mm: float = 9.0  # keyhole entry diameter (screw head up to ~8.5 mm)
     screw_shank_mm: float = 4.5  # slot width (screw shank up to ~4 mm)
     slot_len_mm: float = 10.0  # how far the screw slides up into the slot
+    vents: bool = True  # air holes in the floor so the tile slides in and out without suction
+    push_hole_mm: float = 16.0  # central hole: also lets a finger push the tile out from behind
+    vent_mm: float = 5.0
+    finger_notches: bool = True  # rounded dips in the side walls to pinch the tile's edges
+    notch_mm: float = 24.0  # notch width
 
 
 def _box(x0, y0, x1, y1, z0, z1) -> Mesh:
@@ -79,25 +84,80 @@ def _keyhole_patch(x0, y0, w, h, cx, cy, p: FrameParams, floor: float) -> list[M
     return shells
 
 
-def _floor_with_mount(x0, y0, w, d, floor, p: FrameParams):
-    """Floor slab with two keyholes near the top (north) edge; returns shells and centres."""
-    pw, ph = p.screw_head_mm + 6, p.slot_len_mm + p.screw_head_mm + 6
-    py0 = y0 + d - ph - 12  # keyholes sit 12 mm below the top wall
-    centres = [(x0 + w * f, py0 + 3 + p.screw_head_mm / 2) for f in (0.25, 0.75)]
-    shells = []
-    xs = [x0]
-    for cx, cy in centres:
-        px0 = cx - pw / 2
-        shells += _keyhole_patch(px0, py0, pw, ph, cx, cy, p, floor)
-        xs += [px0, px0 + pw]
-    xs.append(x0 + w)
-    # Plain floor around the patches: below, above, and the gaps beside them.
-    shells.append(_box(x0, y0, x0 + w, py0, 0, floor))
-    shells.append(_box(x0, py0 + ph, x0 + w, y0 + d, 0, floor))
-    for a, b in zip(xs[::2], xs[1::2]):
-        if b - a > 1e-6:
-            shells.append(_box(a, py0, b, py0 + ph, 0, floor))
-    return shells, centres
+def _hole_patch(x0, y0, w, h, cx, cy, radius, floor) -> list[Mesh]:
+    """A w x h block of floor with a round hole right through it."""
+    cell = 0.2
+    nx, ny = int(round(w / cell)) + 1, int(round(h / cell)) + 1
+    dx, dy = w / (nx - 1), h / (ny - 1)
+    f = np.hypot(np.arange(nx)[None, :] * dx - (cx - x0), np.arange(ny)[:, None] * dy - (cy - y0)) - radius
+    m = masked_heightmap_solid(np.full((ny, nx), floor), f, dx, dy)
+    m.vertices[:, 0] += x0
+    m.vertices[:, 1] += y0
+    return [m]
+
+
+def _build_floor(x0, y0, w, d, floor, p: FrameParams):
+    """Floor slab with optional cut-outs, laid out in rows and surrounded by plain floor.
+
+    Rows: wall-mount keyholes 12 mm below the top edge; air vents plus a central push-out
+    hole across the middle. Returns the shells, keyhole centres and hole centres/radii.
+    """
+    rows = []  # (y0, height, [(x0, width, builder)])
+    keyholes, holes = [], []
+    if p.mount:
+        pw, ph = p.screw_head_mm + 6, p.slot_len_mm + p.screw_head_mm + 6
+        py0 = y0 + d - ph - 12
+        keyholes = [(x0 + w * f, py0 + 3 + p.screw_head_mm / 2) for f in (0.25, 0.75)]
+        rows.append((py0, ph, [(cx - pw / 2, pw, lambda a, b, ww, hh, cx=cx, cy=cy:
+                                _keyhole_patch(a, b, ww, hh, cx, cy, p, floor)) for cx, cy in keyholes]))
+    if p.vents:
+        # Push-out hole in the centre, small vents either side: air gets in and out as the
+        # tile goes in or comes out, and a finger can press the tile out from behind.
+        big, small = p.push_hole_mm / 2, p.vent_mm / 2
+        ph = 2 * big + 4
+        cy = y0 + d / 2
+        if rows:  # keep clear of the keyhole row on small tiles
+            cy = min(cy, rows[0][0] - ph / 2 - 3)
+        holes = [(x0 + w / 2, cy, big), (x0 + w * 0.2, cy, small), (x0 + w * 0.8, cy, small)]
+        rows.append((cy - ph / 2, ph, [(hx - (2 * r + 4) / 2, 2 * r + 4, lambda a, b, ww, hh, hx=hx, r=r:
+                                         _hole_patch(a, b, ww, hh, hx, cy, r, floor)) for hx, _, r in holes]))
+    rows.sort(key=lambda r: r[0])
+    shells, y = [], y0
+    for ry, rh, patches in rows:
+        if ry - y > 1e-6:
+            shells.append(_box(x0, y, x0 + w, ry, 0, floor))
+        x = x0
+        for px, pw, build in sorted(patches, key=lambda t: t[0]):
+            if px - x > 1e-6:
+                shells.append(_box(x, ry, px, ry + rh, 0, floor))
+            shells += build(px, ry, pw, rh)
+            x = px + pw
+        if x0 + w - x > 1e-6:
+            shells.append(_box(x, ry, x0 + w, ry + rh, 0, floor))
+        y = ry + rh
+    if y0 + d - y > 1e-6:
+        shells.append(_box(x0, y, x0 + w, y0 + d, 0, floor))
+    return shells, keyholes, holes
+
+
+def _side_wall(x0, x1, y0, y1, height, notch) -> Mesh:
+    """A side wall, optionally with a rounded finger notch dipping from its top edge.
+
+    `notch` = (centre y, half width, bottom z): the top follows half an ellipse down to the
+    bottom z, so fingers can reach in and pinch the tile's edge.
+    """
+    if not notch:
+        return _box(x0, y0, x1, y1, 0, height)
+    cell = 0.25
+    nx, ny = max(2, int(round((x1 - x0) / cell)) + 1), int(round((y1 - y0) / cell)) + 1
+    yy = y0 + np.arange(ny) * (y1 - y0) / (ny - 1)
+    yc, half, bottom = notch
+    dip = (height - bottom) * np.sqrt(np.clip(1 - ((yy - yc) / half) ** 2, 0, 1))
+    z = np.repeat((height - dip)[:, None], nx, axis=1)
+    m = heightmap_solid(z, (x1 - x0) / (nx - 1), (y1 - y0) / (ny - 1))
+    m.vertices[:, 0] += x0
+    m.vertices[:, 1] += y0
+    return m
 
 
 def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
@@ -117,9 +177,11 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
     height = snap(floor + p.tile_h + p.headroom_mm, layer)
     x_in0, y_in0 = wall, band  # opening's south-west corner
 
+    # Finger notches halfway along the side walls, down to just above the floor.
+    notch = (y_in0 + in_d / 2, p.notch_mm / 2, floor + 2.0) if p.finger_notches else None
     shells = [
-        _box(0, band, wall, out_d, 0, height),  # west wall
-        _box(out_w - wall, band, out_w, out_d, 0, height),  # east wall
+        _side_wall(0, wall, band, out_d, height, notch),  # west wall
+        _side_wall(out_w - wall, out_w, band, out_d, height, notch),  # east wall
         _box(wall, out_d - wall, out_w - wall, out_d, 0, height),  # north wall
     ]
     # Front (south) band along the full width; raised text on its top.
@@ -136,12 +198,10 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         shells.append(heightmap_solid(z, out_w / (nx - 1), band / (ny - 1)))
     else:
         shells.append(_box(0, 0, out_w, band, 0, height))
-    centres = []
-    if floor and mount:
-        floor_shells, centres = _floor_with_mount(x_in0, y_in0, in_w, in_d, floor, p)
+    centres, holes = [], []
+    if floor:
+        floor_shells, centres, holes = _build_floor(x_in0, y_in0, in_w, in_d, floor, p)
         shells += floor_shells
-    elif floor:
-        shells.append(_box(x_in0, y_in0, x_in0 + in_w, y_in0 + in_d, 0, floor))
     mesh = Mesh.merge(shells)
 
     m = 2 * 2.0  # a frame's straight edges print fine close to the bed edge: 2 mm margin
@@ -173,6 +233,9 @@ def build_frame(p: FrameParams) -> tuple[Mesh, dict]:
         "warnings": warnings,
         "filament_g": _filament_grams(mesh.volume(), _surface_area(mesh)),
         "mount": bool(centres),
+        "vents": bool(holes),
+        "push_hole_mm": p.push_hole_mm if holes else 0,
+        "finger_notches": bool(notch),
         "keyhole_spacing_mm": round(centres[1][0] - centres[0][0], 1) if centres else 0,
         "keyhole_from_top_mm": round(out_d - centres[0][1], 1) if centres else 0,
     }
@@ -187,6 +250,14 @@ def frame_guide(info: dict) -> list[str]:
         f"There's a gap of {info['opening_mm'][0] - info['tile_mm'][0]:.1f} mm in total around it, and the walls "
         f"rise {info['headroom_mm']:.1f} mm above the highest peak.",
     ]
+    if info.get("vents") or info.get("finger_notches"):
+        how = []
+        if info.get("vents"):
+            how.append(f"the air holes in the floor let air in and out, so the tile slides without suction; "
+                       f"to take it out, push through the {info['push_hole_mm']:.0f} mm hole in the back")
+        if info.get("finger_notches"):
+            how.append("or pinch its edges through the finger notches in the side walls")
+        steps.append("Easy in and out: " + ", ".join(how) + ".")
     if info.get("mount"):
         steps.append(
             f"Wall mount: two keyholes in the back, {info['keyhole_spacing_mm']:.0f} mm apart and "

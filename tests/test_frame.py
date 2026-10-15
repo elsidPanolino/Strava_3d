@@ -56,6 +56,26 @@ def test_wall_mount_keyholes():
     assert any("Wall mount" in g for g in frame_guide(info))
 
 
+def test_air_holes_and_finger_notches():
+    kw = dict(tile_w=150, tile_d=150, tile_h=8, wall_mm=5, band_mm=15, mount=True, title="T", stats="S")
+    mesh, info = build_frame(FrameParams(**kw))
+    bare, _ = build_frame(FrameParams(**kw, vents=False, finger_notches=False))
+    assert mesh.is_watertight() and info["vents"] and info["finger_notches"]
+    floor = info["floor_mm"]
+    holes = floor * np.pi * (8.0 ** 2 + 2 * 2.5 ** 2)  # 16 mm push-out hole + two 5 mm vents
+    notch = 2 * 5 * (np.pi / 4) * 24 * (info["outer_mm"][2] - floor - 2.0)  # two half-ellipse dips
+    assert bare.volume() - mesh.volume() == pytest.approx(holes + notch, rel=0.03)
+    # Notch bottoms sit 2 mm above the floor; outer size unchanged.
+    v = mesh.vertices
+    side = v[(v[:, 0] < 5 - 1e-6) & (v[:, 2] > 0)]
+    assert side[:, 2].min() == pytest.approx(floor + 2.0, abs=0.01)
+    assert info["outer_mm"] == [160.8, 170.8, 14.0]
+    assert any("Easy in and out" in g for g in frame_guide(info))
+    # Small tile: vents shift clear of the keyholes and everything still closes.
+    small, sinfo = build_frame(FrameParams(tile_w=60, tile_d=60, tile_h=5, mount=True))
+    assert small.is_watertight() and sinfo["vents"]
+
+
 def test_frame_page_flow(tmp_path, monkeypatch):
     import strava3d.model as mm
     from strava3d import web
