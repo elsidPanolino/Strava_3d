@@ -85,8 +85,16 @@ def gpx_stats(track: dict) -> dict:
         out["elapsed_time_s"] = int((times[-1] - times[0]).total_seconds())
         if moving:
             out["avg_speed_kmh"] = round(out["distance_km"] / (moving / 3600), 1)
-        out["date"] = times[0].date().isoformat()
+        out["date"] = _local_date(times[0], pts[0][1])
     return out
+
+
+def _local_date(t: datetime, lon: float) -> str:
+    """Local calendar date of a UTC timestamp. GPX has no time zone, so estimate it from the
+    longitude (e.g. 119.5° E -> UTC+8 in the Philippines), which matches Strava for most rides."""
+    from datetime import timedelta
+
+    return (t + timedelta(hours=round(lon / 15))).date().isoformat()
 
 
 def _moving_seconds(points, times, min_speed_ms: float = 1.0) -> int:

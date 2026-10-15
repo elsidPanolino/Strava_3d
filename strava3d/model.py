@@ -27,7 +27,7 @@ class ModelParams:
     cell_mm: float = 0.5  # horizontal resolution of the terrain mesh
     z_exaggeration: float | None = None  # vertical exaggeration; None = auto (see target_relief)
     target_relief_frac: float = 0.12  # auto exaggeration aims for relief = this x model size
-    max_auto_exaggeration: float = 12.0
+    max_auto_exaggeration: float = 6.0  # higher turns rugged coastal hills into needles
     water: str = "auto"  # auto | on | off: flatten the sea (elevation <= 0) and lift the land
     # Coastline threshold. Elevation tiles blend coarse bathymetry into a blocky 0-1 m fringe
     # around coasts; tracing the shore at 1 m follows the detailed land data instead.
@@ -459,7 +459,10 @@ def build_and_export(points, name: str, params: ModelParams, out_dir: Path, fetc
     if model.route is not None:
         files["route"] = out_dir / f"{name}-route.stl"
         model.route.write_stl(files["route"], name=f"{name}-route")
-        parts.append(Part("route", model.route, 2))
+        # After the colour bands' filaments, so the route never shares a band colour.
+        route_filament = len(model.info["bands"]) + 2
+        model.info["route_filament"] = route_filament
+        parts.append(Part("route", model.route, route_filament))
     files["3mf"] = out_dir / f"{name}.3mf"
     write_3mf(files["3mf"], parts, name=name, bed_center=(printer.bed_x / 2, printer.bed_y / 2))
     files["preview"] = out_dir / f"{name}-preview.png"

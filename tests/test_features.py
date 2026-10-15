@@ -123,3 +123,14 @@ def test_3mf_export(tmp_path):
     guide = print_guide(res["info"])
     assert any("0.20mm Standard @BBL A1M" in g for g in guide)
     assert any("slot 2" in g for g in guide)
+
+
+def test_route_filament_comes_after_colour_bands(tmp_path, monkeypatch):
+    import strava3d.model as mm
+
+    monkeypatch.setattr(mm, "elevation_grid", lambda bbox, nx, ny, fetcher=None: hill(bbox, nx, ny))
+    res = build_and_export(LOOP, "t", ModelParams(cell_mm=2.0, size_mm=80, separate_route=True, colors=3), tmp_path)
+    assert len(res["info"]["bands"]) == 2 and res["info"]["route_filament"] == 4
+    cfg = ET.fromstring(zipfile.ZipFile(res["files"]["3mf"]).read("Metadata/model_settings.config"))
+    assert [p.find("metadata[@key='extruder']").get("value") for p in cfg.iter("part")] == ["1", "4"]
+    assert any("slot 4" in g for g in print_guide(res["info"]))

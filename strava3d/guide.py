@@ -40,8 +40,10 @@ def print_guide(info: dict) -> list[str]:
         if bambu:
             ams = printer["ams"] or "AMS"
             steps.append(
-                f"The route is already set to filament 2. Load your route colour in {ams} slot 2 "
-                "and the terrain colour in slot 1."
+                f"The route is already set to filament {info.get('route_filament', 2)}. Load your route "
+                f"colour in {ams} slot {info.get('route_filament', 2)}"
+                + (f" and the sea/land colours in slots 1–{info['route_filament'] - 1}."
+                   if info.get("route_filament", 2) > 2 else " and the terrain colour in slot 1.")
             )
         else:
             steps.append("Assign the route part to your second filament/extruder.")

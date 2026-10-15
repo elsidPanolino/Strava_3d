@@ -172,7 +172,7 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     g.add_argument(
         "--separate-route",
         action="store_true",
-        help="route as its own part (filament 2 in the 3MF) for AMS / multi-colour printing",
+        help="route as its own part (next free filament in the 3MF) for AMS / multi-colour printing",
     )
     g.add_argument("--label", action="store_true", help="add a name plate with the activity name and stats")
     g.add_argument("--label-text", help="custom name plate title (default: activity name)")
