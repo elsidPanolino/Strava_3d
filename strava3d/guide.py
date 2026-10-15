@@ -71,16 +71,32 @@ def print_guide(info: dict) -> list[str]:
             + "The raised route and name plate show up through light and shadow."
         )
     elif info.get("sea_color"):
-        steps.append(
-            f"Colour 1 is the sea (and the base under it). Colour 2 starts at layer {bands[0]['layer']}: "
-            f"the land rises {info['coast_step_mm']:.1f} mm above the flat sea, so every coastline is a "
-            "sharp step and a clean colour edge."
-        )
+        style = info.get("sea_style", "flat")
+        surface = {"flat": "flat sea", "waves": "waves", "depth": "sea"}[style]
+        if info.get("shallow_color"):
+            steps.append(
+                f"Colour 1 is the deep sea (and the base under it). Colour 2, from layer {bands[0]['layer']}, "
+                "is shallow water: reefs and lagoons sit higher, so they print in this colour. "
+                f"Colour 3, from layer {bands[1]['layer']}, is the land, which rises "
+                f"{info['coast_step_mm']:.1f} mm above the sea at every coastline."
+            )
+        else:
+            steps.append(
+                f"Colour 1 is the sea (and the base under it). Colour 2 starts at layer {bands[0]['layer']}: "
+                f"the land rises {info['coast_step_mm']:.1f} mm above the {surface}, so every coastline is a "
+                "sharp step and a clean colour edge."
+            )
     elif info.get("water"):
         steps.append(
             "Tip: this area has sea. Turn on \"Sea in its own colour\" (--sea-color on) to print it blue "
             "with one filament change at the coastline."
         )
+    if info.get("water") and info.get("sea_style") == "waves":
+        steps.append("The wave texture is only a couple of layers deep. 0.12–0.16 mm layers show it best.")
+    elif (info.get("water") and info.get("sea_style") == "depth" and not info.get("shallow_color")
+          and info.get("sea_color")):
+        steps.append("Depth sea: reefs and shallows sit higher than deep water. Turn on "
+                     "\"Shallow water colour\" to print them turquoise over a deep blue.")
     if info.get("label_mm") and not bands and not info.get("single_color"):
         steps.append(
             "Tip: turn on \"Base in its own colour\" to print the name plate text in a contrasting colour."

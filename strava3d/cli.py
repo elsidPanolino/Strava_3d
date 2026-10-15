@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .geo import read_gpx_track, slug
 from .guide import print_guide
-from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export
+from .model import ROUTE_STYLES, SEA_STYLES, SHAPES, ModelParams, build_and_export
 from .stats import DEFAULT_LABEL_FIELDS, LABEL_FIELDS, RIDE_TYPES, fmt_duration, format_stats, gpx_stats, label_lines, strava_stats
 from .printers import DEFAULT_PRINTER, PRINTERS
 from .strava import DEFAULT_PORT, Credentials, StravaClient
@@ -51,6 +51,10 @@ def _params(args, plate=None) -> ModelParams:
         water=args.water,
         sea_color={"auto": None, "on": True, "off": False}[args.sea_color],
         coast_step_mm=args.coast_step,
+        sea_style=args.sea_style,
+        sea_depth_mm=args.sea_depth,
+        wave_mm=args.wave_height,
+        shallow_color=args.shallow_color,
         base_mm=args.base,
         padding=args.padding,
         shape=shape,
@@ -162,8 +166,15 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
                    help="flatten the sea and lift the land; auto = when the area has sea (default)")
     g.add_argument("--sea-color", choices=["auto", "on", "off"], default="auto",
                    help="print the sea in its own colour (one filament change at the coast); default auto = when there is sea")
-    g.add_argument("--coast-step", type=float, default=1.0,
-                   help="height of the land edge above the sea in mm (default 1.0)")
+    g.add_argument("--coast-step", type=float, default=0.4,
+                   help="height of the land edge above the sea in mm (default 0.4)")
+    g.add_argument("--sea-style", choices=SEA_STYLES, default="flat",
+                   help="flat sea, waves (ripple texture) or depth (reefs high, deep water low)")
+    g.add_argument("--sea-depth", type=float, default=1.6,
+                   help="depth style: how far the deepest water sits below the sea surface, in mm (default 1.6)")
+    g.add_argument("--wave-height", type=float, default=0.4, help="waves style: texture height in mm (default 0.4)")
+    g.add_argument("--shallow-color", action="store_true",
+                   help="depth style: shallow water (reefs, lagoons) in its own colour")
     g.add_argument("--base", type=float, default=3, help="base thickness in mm (default 3)")
     g.add_argument("--padding", type=float, default=0.1, help="terrain margin around route (fraction, default 0.1)")
     g.add_argument("--square", action="store_true", help="same as --shape square")

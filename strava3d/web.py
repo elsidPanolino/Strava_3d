@@ -12,7 +12,7 @@ from flask import Flask, jsonify, redirect, request, send_from_directory
 
 from .geo import read_gpx_track, slug
 from .guide import print_guide
-from .model import ROUTE_STYLES, SHAPES, ModelParams, build_and_export
+from .model import ROUTE_STYLES, SEA_STYLES, SHAPES, ModelParams, build_and_export
 from .stats import DEFAULT_LABEL_FIELDS, RIDE_TYPES, gpx_stats, label_lines, strava_stats
 from .printers import DEFAULT_PRINTER, PRINTERS
 from .strava import Credentials, StravaClient, StravaError, default_token_path
@@ -70,6 +70,18 @@ def parse_params(form) -> ModelParams:
     if water not in ("auto", "on", "off"):
         raise ValueError("water must be auto, on or off")
     params.water = water
+    style = form.get("sea_style") or "flat"
+    if style not in SEA_STYLES:
+        raise ValueError(f"sea_style must be one of {SEA_STYLES}")
+    params.sea_style = style
+    params.shallow_color = form.get("shallow_color") in ("1", "true", "on")
+    for field, attr, lo, hi in (("coast_step", "coast_step_mm", 0.2, 5), ("sea_depth", "sea_depth_mm", 0.2, 10),
+                                ("wave_height", "wave_mm", 0.1, 2)):
+        if form.get(field):
+            value = float(form[field])
+            if not lo <= value <= hi:
+                raise ValueError(f"{field} must be between {lo} and {hi}")
+            setattr(params, attr, value)
     sea = form.get("sea_color", "auto")
     params.sea_color = {"auto": None, "1": True, "on": True, "0": False, "off": False}.get(sea)
     if params.sea_color is None and sea not in ("auto", ""):

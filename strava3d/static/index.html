@@ -327,15 +327,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
       <details>
         <summary>Advanced</summary>
         <div class="field">
-          <div class="lbl">Sea</div>
-          <div class="seg" id="waterSeg">
-            <button data-v="auto" class="on">Auto</button>
-            <button data-v="on">Flatten</button>
-            <button data-v="off">Off</button>
-          </div>
-          <div class="hint">Flattens the sea at the base and lifts the land, so coasts and islands read clearly.</div>
-        </div>
-        <div class="field">
           <label for="base">Base thickness <output data-for="base" data-unit=" mm"></output></label>
           <input type="range" id="base" min="1" max="10" step="0.2" value="3">
         </div>
@@ -364,6 +355,44 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
       </details>
     </div>
 
+    <div class="card" id="seaCard">
+      <h2><span class="step"><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M1 5q1.25-1.6 2.5 0t2.5 0 2.5 0 2.5 0M1 8.5q1.25-1.6 2.5 0t2.5 0 2.5 0 2.5 0" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span> Sea</h2>
+      <div class="field">
+        <div class="lbl">Sea handling</div>
+        <div class="seg" id="waterSeg">
+          <button data-v="auto" class="on">Auto</button>
+          <button data-v="on">Always</button>
+          <button data-v="off">Off</button>
+        </div>
+        <div class="hint">Auto flattens the sea and lifts the land whenever the map includes sea, so coasts and islands read clearly.</div>
+      </div>
+      <div id="seaOpts">
+        <div class="field">
+          <div class="lbl">Sea surface</div>
+          <div class="seg" id="seaStyleSeg">
+            <button data-v="flat" class="on">Flat</button>
+            <button data-v="waves">Waves</button>
+            <button data-v="depth">Depth</button>
+          </div>
+          <div class="hint" id="seaStyleHint"></div>
+        </div>
+        <div class="field">
+          <label for="coast_step">Coastline step <output data-for="coast_step" data-unit=" mm"></output></label>
+          <input type="range" id="coast_step" min="0.2" max="3" step="0.2" value="0.4">
+          <div class="hint">How far the land rises above the sea at every coast. Lower is subtler; at least one layer keeps a clean colour edge.</div>
+        </div>
+        <div class="field" id="seaDepthField">
+          <label for="sea_depth">Sea depth <output data-for="sea_depth" data-unit=" mm"></output></label>
+          <input type="range" id="sea_depth" min="0.4" max="3" step="0.2" value="1.6">
+          <div class="hint">How far the deepest water sits below the shallows. Limited to the base thickness minus 1 mm.</div>
+        </div>
+        <div class="field" id="waveField">
+          <label for="wave_height">Wave height <output data-for="wave_height" data-unit=" mm"></output></label>
+          <input type="range" id="wave_height" min="0.2" max="1" step="0.2" value="0.4">
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2><span class="step">4</span> Colours</h2>
       <div class="field">
@@ -385,6 +414,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
         <div class="hint" id="colorHint">Filament changes at set layers. Works with AMS lite or with manual swaps on a single spool.</div>
       </div>
       <label class="check"><input type="checkbox" id="sea_color" checked> <span>Sea in its own colour<small>Blue sea with a sharp step at every coastline (when there is sea)</small></span></label>
+      <label class="check" id="shallowCheck"><input type="checkbox" id="shallow_color"> <span>Shallow water colour<small>Turquoise reefs and lagoons over deep blue (Depth sea surface)</small></span></label>
       <label class="check"><input type="checkbox" id="base_color"> <span>Base in its own colour<small>Dark base under the land and name plate text</small></span></label>
       <label class="check"><input type="checkbox" id="separate_route"> <span>Route as a separate part<small>Its own filament in the .3mf (needs AMS lite / AMS)</small></span></label>
       </div>
@@ -445,14 +475,22 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
 <script>
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { size: 170, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0, label_mm: 16 };
+const DEFAULTS = { size: 170, exaggeration: 1.5, base: 3, padding: 0.1, resolution: 0.5, route_width: 1.6, route_height: 1.0, label_mm: 16,
+                   coast_step: 0.4, sea_depth: 1.6, wave_height: 0.4 };
 const PALETTES = {
   2: ["#4f7942", "#f2efe6"],
   3: ["#4f7942", "#a68a64", "#f2efe6"],
   4: ["#3d6b35", "#7f9b4f", "#a68a64", "#f2efe6"],
 };
 const FILAMENT_DEFAULT = "#f2f0ea";
-const BASE_DEFAULT = "#2f2f2d", SEA_DEFAULT = "#2f6fb0", ROUTE_DEFAULT = "#fc4c02";
+const BASE_DEFAULT = "#2f2f2d", SEA_DEFAULT = "#2f6fb0", SHALLOW_DEFAULT = "#5ccfd0", ROUTE_DEFAULT = "#fc4c02";
+const SEA_STYLE_HINTS = {
+  flat: "A smooth, flat sea. Cleanest look and quickest to print.",
+  waves: "A gentle wave texture you can feel, calm near the shore. Best with 0.12–0.16 mm layers.",
+  depth: "The real sea floor: reefs and shallows sit high, deep channels low. Pair it with the shallow water colour.",
+};
+// Shallow-water colour is only used for a depth sea that has its own colour.
+const shallowOn = () => state.seaStyle === "depth" && $("shallow_color").checked && $("sea_color").checked;
 const state = { source: "strava", activity: null, gpxFile: null, page: 1, route: "raised", shape: "rectangle",
                 colors: 1, printers: [], swatch: {}, last: null, water: "auto", sport: "ride", acts: [],
                 totals: null, totalsSport: "ride" };
@@ -686,7 +724,16 @@ function setSeg(id, key, v) {
 seg("routeSeg", "route");
 seg("shapeSeg", "shape", updateShapeUi);
 seg("colorSeg", "colors", renderSwatches);
-seg("waterSeg", "water");
+seg("waterSeg", "water", updateSeaUi);
+seg("seaStyleSeg", "seaStyle", () => { updateSeaUi(); renderSwatches(); });
+function updateSeaUi() {
+  const style = state.seaStyle || "flat";
+  $("seaOpts").classList.toggle("hidden", state.water === "off");
+  $("seaDepthField").classList.toggle("hidden", style !== "depth");
+  $("waveField").classList.toggle("hidden", style !== "waves");
+  $("shallowCheck").classList.toggle("hidden", style !== "depth" || state.water === "off");
+  $("seaStyleHint").textContent = SEA_STYLE_HINTS[style];
+}
 function updateExag() {
   const auto = $("exagAuto").checked;
   $("exaggeration").disabled = auto;
@@ -712,7 +759,9 @@ function bandColors() {
   const out = [];
   if (state.single) return out;  // one filament, no colour changes
   const water = state.last && state.last.info.water;
-  if ($("base_color").checked || ($("sea_color").checked && water)) {
+  if ($("sea_color").checked && water && shallowOn()) {  // deep sea, then shallow water
+    out.push(state.swatch.sea || SEA_DEFAULT, state.swatch.shallow || SHALLOW_DEFAULT);
+  } else if ($("base_color").checked || ($("sea_color").checked && water)) {
     out.push(water ? state.swatch.sea || SEA_DEFAULT : state.swatch.base || BASE_DEFAULT);
   }
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => out.push(state.swatch[`b${state.colors}_${i}`] || c));
@@ -730,7 +779,8 @@ function renderSwatches() {
   if (state.single) { add("filament", "Filament", FILAMENT_DEFAULT); viewer.recolor(); return; }
   const water = state.last ? state.last.info.water : true;  // before the first build, assume there may be sea
   const sea = $("sea_color").checked && water;
-  if (sea) add("sea", "Sea", SEA_DEFAULT);
+  if (sea && shallowOn()) { add("sea", "Deep sea", SEA_DEFAULT); add("shallow", "Shallow", SHALLOW_DEFAULT); }
+  else if (sea) add("sea", "Sea", SEA_DEFAULT);
   else if ($("base_color").checked) add("base", "Base", BASE_DEFAULT);
   if (state.colors > 1) PALETTES[state.colors].forEach((c, i) => add(`b${state.colors}_${i}`, i === 0 ? "Low" : i === state.colors - 1 ? "High" : `Mid ${i}`, c));
   else if (sea || $("base_color").checked) add("solid", "Land", "#7d9a6a");
@@ -743,7 +793,8 @@ function saveSettings() {
               printer: $("printer").value, layer: $("layer").value, label_text: $("label_text").value,
               water: state.water, exag_auto: $("exagAuto").checked, plate: plateFields(), sport: state.sport,
               single: state.single };
-  for (const k of ["label", "base_color", "separate_route", "sea_color"]) s[k] = $(k).checked;
+  for (const k of ["label", "base_color", "separate_route", "sea_color", "shallow_color"]) s[k] = $(k).checked;
+  s.sea_style = state.seaStyle;
   for (const k in DEFAULTS) s[k] = $(k).value;
   store("strava3d-settings-v2", s);
 }
@@ -752,6 +803,7 @@ function applySettings(s) {
   for (const k in DEFAULTS) $(k).value = s[k] != null ? s[k] : DEFAULTS[k];
   for (const k of ["label", "base_color", "separate_route"]) $(k).checked = !!s[k];
   $("sea_color").checked = s.sea_color !== false;
+  $("shallow_color").checked = !!s.shallow_color;
   $("label_text").value = s.label_text || "";
   if (s.layer) $("layer").value = s.layer;
   state.swatch = s.swatch || {};
@@ -759,6 +811,8 @@ function applySettings(s) {
   setSeg("shapeSeg", "shape", s.shape || "rectangle");
   setSeg("colorSeg", "colors", s.colors || 1);
   setSeg("waterSeg", "water", s.water || "auto");
+  setSeg("seaStyleSeg", "seaStyle", s.sea_style || "flat");
+  updateSeaUi();
   $("exagAuto").checked = s.exag_auto !== false;
   if (s.plate) document.querySelectorAll("#plateStats input").forEach(i => (i.checked = s.plate.includes(i.value)));
   if (s.sport) {
@@ -780,7 +834,8 @@ document.querySelectorAll("#modeSeg button").forEach(b => (b.onclick = () => { s
 document.querySelectorAll("input[type=range]").forEach(i => (i.oninput = () => { syncOutputs(); updateExag(); saveSettings(); }));
 $("label").onchange = () => { updateShapeUi(); saveSettings(); };
 $("label_text").oninput = saveSettings;
-$("base_color").onchange = $("separate_route").onchange = $("sea_color").onchange = () => { renderSwatches(); saveSettings(); };
+$("base_color").onchange = $("separate_route").onchange = $("sea_color").onchange = $("shallow_color").onchange =
+  () => { renderSwatches(); saveSettings(); };
 $("reset").onclick = () => { const p = $("printer").value; applySettings({ printer: p }); applyPrinter(true); saveSettings(); };
 
 // ---------- Build ----------
@@ -790,6 +845,8 @@ $("build").onclick = async () => {
   fd.append("route", state.route);
   fd.set("exaggeration", $("exagAuto").checked ? "auto" : $("exaggeration").value);
   fd.append("water", state.water);
+  fd.append("sea_style", state.seaStyle || "flat");
+  if (shallowOn()) fd.append("shallow_color", "1");
   fd.append("sea_color", $("sea_color").checked ? "auto" : "off");
   fd.append("label_stats", plateFields().join(","));
   fd.append("shape", state.shape);
@@ -800,6 +857,7 @@ $("build").onclick = async () => {
   if (state.shape === "circle" || state.shape === "hexagon") fd.delete("label");
   if (state.single) {  // one colour: no bands, sea or base colour, no separate route part
     fd.set("colors", "1"); fd.set("sea_color", "off"); fd.delete("base_color"); fd.delete("separate_route");
+    fd.delete("shallow_color");
     fd.append("single_color", "1");
   }
   fd.append("label_text", $("label_text").value);

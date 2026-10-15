@@ -90,7 +90,7 @@ def test_coastline_is_a_crisp_step_even_on_flat_coast():
     m = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shape="square", route_style="none"),
                     elevation=flat_coast)
     base, step = m.info["base_mm"], m.info["coast_step_mm"]
-    assert step == pytest.approx(1.0)
+    assert step == pytest.approx(0.4)  # default: subtle 2-layer step
     row = m.heightmap[m.heightmap.shape[0] // 2]
     partial = (row > base + 1e-6) & (row < base + step - 1e-6)
     assert partial.sum() <= 2  # the shoreline ramp is at most ~one cell wide
@@ -105,6 +105,66 @@ def test_sea_colour_is_automatic_and_can_be_turned_off():
     assert not off.info["sea_color"] and off.info["bands"] == []
     inland = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80), elevation=lambda b, nx, ny: 100 + np.zeros((ny, nx)) + np.arange(nx))
     assert not inland.info["water"] and inland.info["bands"] == []
+
+
+def sloping_seabed(bbox, nx, ny):
+    """Land on the east, sea floor shelving from 0 m at the coast to -300 m in the west."""
+    x = np.linspace(-1, 1, nx)[None, :].repeat(ny, axis=0)
+    return np.where(x < -0.2, (x + 0.2) * 375, (x + 0.2) * 666)
+
+
+def test_wave_sea_stays_below_the_surface_and_calms_at_the_shore():
+    m = build_model(RIDE, ModelParams(cell_mm=0.5, size_mm=80, shape="square", route_style="none",
+                                      sea_style="waves"), elevation=island)
+    base, z = m.info["base_mm"], m.heightmap
+    sea = z[:, : int(z.shape[1] * 0.3)]
+    assert sea.max() <= base + 1e-9  # waves never rise above the sea/land colour change
+    assert sea.min() == pytest.approx(base - 0.4, abs=0.05)  # 0.4 mm texture
+    assert m.terrain.is_watertight() and m.info["sea_style"] == "waves"
+
+
+def test_depth_sea_follows_the_seabed_and_keeps_a_solid_floor():
+    m = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shape="square", route_style="none",
+                                      sea_style="depth", sea_depth_mm=1.6), elevation=sloping_seabed)
+    base, z, info = m.info["base_mm"], m.heightmap, m.info
+    row = z[z.shape[0] // 2]
+    sea = row[: int(len(row) * 0.38)]
+    assert np.all(np.diff(sea) >= -1e-6)  # shallower (higher) towards the coast
+    assert sea.min() == pytest.approx(base - 1.6, abs=0.05) and sea.max() <= base + 1e-9
+    assert info["sea_depth_mm"] == pytest.approx(1.6)
+    # Too deep for the base: limited to base - 1 mm with a warning.
+    deep = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, sea_style="depth", sea_depth_mm=3.0),
+                       elevation=sloping_seabed)
+    assert deep.info["sea_depth_mm"] == pytest.approx(2.0)
+    assert any("Sea depth limited" in w for w in deep.info["warnings"])
+
+
+def test_depth_sea_ignores_corrupt_rows_in_the_bathymetry():
+    def corrupt(bbox, nx, ny):
+        e = sloping_seabed(bbox, nx, ny)
+        e[ny // 2] = np.where(e[ny // 2] < 0, -4865.0, e[ny // 2])  # bad data row seen off Palawan
+        return e
+
+    clean = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shape="square", route_style="none",
+                                          sea_style="depth"), elevation=sloping_seabed)
+    bad = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shape="square", route_style="none",
+                                        sea_style="depth"), elevation=corrupt)
+    assert np.abs(bad.heightmap - clean.heightmap).max() < 0.1  # under half a layer (unfiltered: ~1.6 mm groove)
+
+
+def test_shallow_water_colour_band():
+    from strava3d.guide import print_guide
+
+    m = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, sea_style="depth", shallow_color=True),
+                    elevation=sloping_seabed)
+    info = m.info
+    bands = info["bands"]
+    assert info["shallow_color"] and len(bands) == 2
+    assert bands[0]["z"] < bands[1]["z"] == info["base_mm"]  # shallow change inside the sea, then land
+    assert any("shallow water" in g for g in print_guide({**info, "route_style": "raised"}))
+    # Ignored without the depth style.
+    flat = build_model(RIDE, ModelParams(cell_mm=1.0, size_mm=80, shallow_color=True), elevation=sloping_seabed)
+    assert not flat.info["shallow_color"] and len(flat.info["bands"]) == 1
 
 
 def test_single_color_overrides_every_colour_option():

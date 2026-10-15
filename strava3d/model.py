@@ -17,6 +17,7 @@ from .threemf import Part, write_3mf
 
 ROUTE_STYLES = ("raised", "groove", "none")
 SHAPES = ("rectangle", "square", "circle", "hexagon")
+SEA_STYLES = ("flat", "waves", "depth")
 # Colour-band split points as fractions of the terrain relief, by number of colours.
 BAND_FRACTIONS = {2: [0.55], 3: [0.35, 0.7], 4: [0.25, 0.5, 0.75]}
 
@@ -32,8 +33,12 @@ class ModelParams:
     # Coastline threshold. Elevation tiles blend coarse bathymetry into a blocky 0-1 m fringe
     # around coasts; tracing the shore at 1 m follows the detailed land data instead.
     sea_level_m: float = 1.0
-    coast_step_mm: float = 1.0  # height of the land's edge above the flat sea
+    coast_step_mm: float = 0.4  # height of the land's edge above the sea (2 layers: subtle but a clean colour edge)
     sea_color: bool | None = None  # sea in its own colour (filament change at the sea surface); None = auto
+    sea_style: str = "flat"  # flat | waves (ripple texture) | depth (sea floor: reefs high, deep water low)
+    wave_mm: float = 0.4  # wave texture height
+    sea_depth_mm: float = 1.6  # depth style: how far the deepest water sits below the sea surface
+    shallow_color: bool = False  # depth style: shallow water (reefs, lagoons) in its own colour
     base_mm: float = 3.0  # thickness of the solid base under the lowest point
     padding: float = 0.1  # extra terrain around the route, as fraction of its size
     shape: str = "rectangle"  # rectangle | square | circle | hexagon
@@ -83,7 +88,9 @@ def build_model(
     p = params or ModelParams()
     if p.single_color:
         # One spool, no filament changes: no bands, sea/base colour or separate route part.
-        p = replace(p, colors=1, base_color=False, sea_color=False, separate_route=False)
+        p = replace(p, colors=1, base_color=False, sea_color=False, separate_route=False, shallow_color=False)
+    if p.sea_style not in SEA_STYLES:
+        raise ValueError(f"sea_style must be one of {SEA_STYLES}")
     shape = "square" if p.square and p.shape == "rectangle" else p.shape
     if p.route_style not in ROUTE_STYLES:
         raise ValueError(f"route_style must be one of {ROUTE_STYLES}")
@@ -172,6 +179,7 @@ def build_model(
         land = inside[inside > ref]
     else:
         water, ref, lift, land = False, float(inside.min()), 0.0, inside
+    sea_depth = 0.0
     relief_m = float(land.max() - ref) if land.size else 0.0
     if p.z_exaggeration:
         exaggeration = p.z_exaggeration
@@ -190,6 +198,7 @@ def build_model(
             elev_f = np.asarray(elevation(bbox, nxf, nyf), dtype=float)
         coast = land_coverage(elev_f, ref, fine)
         z = base_mm + lift * coast + np.maximum(elev - ref, 0) * scale * exaggeration
+        z, sea_depth = sea_surface(z, elev, coast, ref, base_mm, layer, dx, dy, p, warnings)
     else:
         z = base_mm + (elev - ref) * scale * exaggeration
         z = np.maximum(z, base_mm)
@@ -258,6 +267,9 @@ def build_model(
     terrain_top = float(z[shape_mask].max() if shape_mask is not None else z.max())
     sea_color = bool(water and p.sea_color is not False)
     bands = colour_bands(p.colors, p.base_color or sea_color, base_mm, terrain_top, layer, printer, base_mm + lift)
+    shallow = bool(sea_color and p.shallow_color and p.sea_style == "depth" and sea_depth >= 2 * layer)
+    if shallow:
+        bands = [shallow_band(base_mm, sea_depth, layer, printer)] + bands
 
     area = _surface_area(terrain) + (_surface_area(route_mesh) if route_mesh is not None else 0)
     volume = terrain.volume() + (route_mesh.volume() if route_mesh is not None else 0)
@@ -282,6 +294,9 @@ def build_model(
         "sea_color": sea_color,
         "single_color": p.single_color,
         "coast_step_mm": lift,
+        "sea_style": p.sea_style if water else "flat",
+        "sea_depth_mm": sea_depth,
+        "shallow_color": shallow,
         "sea_fraction": round(sea_fraction, 3),
         "filament_g": _filament_grams(volume, area),
         "warnings": warnings,
@@ -307,6 +322,72 @@ def _filament_grams(volume_mm3: float, area_mm2: float, infill=0.15, shell_mm=0.
     """Rough PLA estimate: solid shell (walls, top, bottom) plus sparse infill."""
     shell = min(area_mm2 * shell_mm, volume_mm3)
     return int(round((shell + (volume_mm3 - shell) * infill) * density / 1000))
+
+
+def _blur(a: np.ndarray, sigma: float) -> np.ndarray:
+    """Separable Gaussian blur (sigma in grid cells), edges padded."""
+    if sigma <= 0:
+        return a
+    r = max(1, int(round(3 * sigma)))
+    w = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    w /= w.sum()
+    pad = np.pad(a, r, mode="edge")
+    rows = sum(w[k] * pad[k:k + a.shape[0], :] for k in range(len(w)))
+    return sum(w[k] * rows[:, k:k + a.shape[1]] for k in range(len(w)))
+
+
+def _median5(a: np.ndarray) -> np.ndarray:
+    """5x5 median filter (edges padded): removes isolated spikes and corrupt rows or columns."""
+    pad = np.pad(a, 2, mode="edge")
+    h, w = a.shape
+    stack = np.stack([pad[i:i + h, j:j + w] for i in range(5) for j in range(5)])
+    return np.median(stack, axis=0)
+
+
+def sea_surface(z, elev, coast, ref, base_mm, layer, dx, dy, p, warnings):
+    """Shape the sea part of the top surface (everything below the sea surface at base_mm).
+
+    Returns the new z and the depth (mm) used by the depth style (0 otherwise). The sea
+    never rises above base_mm, so the sea/land colour change at the base top still works.
+    """
+    sea_part = 1 - coast
+    if p.sea_style == "waves":
+        amp = snap(p.wave_mm, layer)
+        ny, nx = z.shape
+        x = np.arange(nx)[None, :] * dx
+        y = np.arange(ny)[:, None] * dy
+        lam = 4.0  # wavelength in mm: reads as waves without fighting the 0.4 mm nozzle
+        w = 0.5 + 0.25 * (np.sin(2 * np.pi * (0.8 * x + 0.6 * y) / lam)
+                          + np.sin(2 * np.pi * (-0.3 * x + 0.95 * y) / (lam * 1.37)))
+        # Calm water near the shore: fade the waves out over ~2 mm from the coast.
+        near_shore = _blur(coast, 2.0 / min(dx, dy))
+        fade = np.clip(1 - 3 * near_shore, 0, 1)
+        return z - amp * w * fade * sea_part, 0.0
+    if p.sea_style == "depth":
+        depth_mm = snap(p.sea_depth_mm, layer)
+        max_depth = base_mm - 1.0  # keep at least 1 mm of solid floor under the deepest water
+        if depth_mm > max_depth:
+            depth_mm = snap(max(max_depth, layer), layer)
+            warnings.append(f"Sea depth limited to {depth_mm:.1f} mm so the base stays at least 1 mm thick. "
+                            "Raise the base thickness for deeper water.")
+        # Bathymetry in elevation tiles is coarse and blocky, and some tiles contain corrupt
+        # rows (e.g. -4,865 m in shallow water off Palawan). A 5x5 median removes such spikes,
+        # then a blur (~1.5 mm) smooths the blocks.
+        depth_m = np.clip(ref - _blur(_median5(elev), 1.5 / min(dx, dy)), 0, None)
+        sea_cells = depth_m[sea_part > 0.5]
+        ref_depth = max(20.0, float(np.percentile(sea_cells, 90))) if sea_cells.size else 20.0
+        # Square root keeps reefs and shallows visible next to deep channels.
+        f = np.sqrt(np.clip(depth_m / ref_depth, 0, 1))
+        return z - depth_mm * f * sea_part, depth_mm
+    return z, 0.0
+
+
+def shallow_band(base_mm: float, depth_mm: float, layer: float, printer) -> dict:
+    """Colour change halfway down the sea: shallower water above it prints in the shallow colour."""
+    z = base_mm - depth_mm / 2
+    z = printer.first_layer + max(1, round((z - printer.first_layer) / layer)) * layer
+    z = min(z, base_mm - layer)
+    return {"z": round(z, 3), "layer": layer_number(z + layer, printer, layer), "top_z": round(z + layer, 3)}
 
 
 def land_coverage(elev_fine: np.ndarray, sea_level: float, fine: int) -> np.ndarray:
@@ -436,7 +517,13 @@ def render_preview(model: TerrainModel, path, max_px: int = 1000, band_colors=No
     rgb = base * (0.35 + 0.65 * shade[..., None])
     if model.sea_mask is not None:
         sea = model.sea_mask[..., None]
-        rgb = rgb * (1 - sea) + np.array([0.36, 0.58, 0.80]) * (0.85 + 0.15 * shade[..., None]) * sea
+        depth = model.info.get("sea_depth_mm") or 0
+        if depth:  # shallow water turquoise, deep water dark blue
+            t = np.clip((model.info["base_mm"] - z) / depth, 0, 1)[..., None]
+            water = np.array([0.50, 0.82, 0.82]) * (1 - t) + np.array([0.16, 0.36, 0.66]) * t
+        else:
+            water = np.array([0.36, 0.58, 0.80])
+        rgb = rgb * (1 - sea) + water * (0.85 + 0.15 * shade[..., None]) * sea
     orange = np.array([0.99, 0.32, 0.0])
     m = model.route_mask[..., None]
     rgb = rgb * (1 - m) + orange * m
